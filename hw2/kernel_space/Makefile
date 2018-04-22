@@ -6,7 +6,7 @@ PWD := $(shell pwd)
 obj-m += hw2.o
 
 default:
-    $(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
+	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
 
 clean:
-    $(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean
+	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean
