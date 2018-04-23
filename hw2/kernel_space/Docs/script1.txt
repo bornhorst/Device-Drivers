@@ -1,0 +1,23 @@
+Script started on Mon 23 Apr 2018 12:02:45 PM PDT
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ sudo insomod hw2.k
+[sudo] password for ryan:
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ ~/Device-Drivers/hw2/user_space/./user_space
+
+Read from device: 25
+
+Enter an int value to send to the device:  43
+
+Sending to device: 43
+
+Read 43 back... after sending 43
+
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ sudo rmmod hw2.ko
+[sudo] password for ryan: 
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ exit
+
+Script done on Mon 23 Apr 2018 12:03:57 PM PDT
+

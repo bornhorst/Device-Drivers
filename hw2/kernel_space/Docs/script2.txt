@@ -1,0 +1,21 @@
+Script started on Mon 23 Apr 2018 12:34:25 PM PDT
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ sudo insmod hw2.ko syscall_val=99
+[sudo] password for ryan: 
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ ~/Device-Drivers/hw2/user_space/./user_space
+
+Read from device: 99
+
+Enter an int value to send to the device:  11
+
+Sending to device: 11
+
+Read 11 back... after sending 11
+
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ sudo rmmod hw2.ko
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space
+ryan@ryan-VirtualBox: ~/Device-Drivers/hw2/kernel_space$ exit
+
+Script done on Mon 23 Apr 2018 12:35:51 PM PDT
