@@ -26,7 +26,8 @@ static struct mydev_dev {
 
 /* sys/modules/hw2/parameters */
 static int hw2_sys = 25;
-module_param(hw2_sys, int, S_IRUSR | S_IWUSR);
+module_param(hw2_sys, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(hw2_sys, "Device Integer");
 
 /* allows device to be opened using open sys call */
 static int hw2_open(struct inode *inode, struct file *file) {
@@ -82,11 +83,13 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
 
     if(!kern_buf) {
         ret = -ENOMEM;
+	printk(KERN_ERR "bad malloc...\n");
         goto out;
     }
 
     if(copy_from_user(kern_buf, buf, len)) {
         ret = -EFAULT;
+	printk(KERN_ERR "bad copy from user...\n");
         goto mem_out;
     }
 
@@ -102,16 +105,30 @@ out:
     return ret;
 }
 
+static int hw2_release(struct inode *inode, struct file *file) {
+
+    printk(KERN_INFO "device was released...\n");
+    return 0;
+}
+
 static struct file_operations mydev_fops = {
     .owner = THIS_MODULE,
-    .read = hw2_read,
     .open = hw2_open,
+    .read = hw2_read,
     .write = hw2_write,
+    .release = hw2_release,
 };
 
+/* function that allows access to device permissions */
 static char *my_devnode(struct device *dev, umode_t *mode) {
 
-    *mode = 0666;
+    if(!mode)
+	return NULL;
+
+    /* give r/w permission to users */
+    if(dev->devt == mydev.mydev_node)
+        *mode = 0666;
+
     return NULL;
 }
 
@@ -136,6 +153,8 @@ static int __init char_device_init(void) {
     
     /* create the device class /sys/class */
     hw2_class = class_create(THIS_MODULE, DEV_CLASS);
+    /* change file permissions */
+    hw2_class -> devnode = my_devnode;
     if(IS_ERR(hw2_class)) {
 	printk(KERN_ERR "problem creating device class...\n");
 	goto cdev_err;
@@ -145,11 +164,10 @@ static int __init char_device_init(void) {
     /* allow file operations on device */
     cdev_init(&mydev.cdev, &mydev_fops);
     mydev.cdev.owner = THIS_MODULE;
-    hw2_class -> devnode = my_devnode;
 
     /* add cdev to core with device number */
     mydev.mydev_node = MKDEV(MAJOR(mydev.mydev_node), 
-		           MINOR(mydev.mydev_node));
+		             MINOR(mydev.mydev_node));
 
     /* allow user to access device */
     ret = cdev_add(&mydev.cdev, mydev.mydev_node, DEVCNT);
@@ -170,6 +188,8 @@ static int __init char_device_init(void) {
 	goto cdev_err;
     }
 
+    printk(KERN_INFO "module parameter [hw2_sys] is now %d...\n", hw2_sys);
+    
     return ret;
 
 cdev_err:
@@ -180,7 +200,6 @@ cdev_err:
 /* clean up device here */
 static void __exit char_device_exit(void) {
 
-    cdev_del(&mydev.cdev);
     device_destroy(hw2_class, mydev.mydev_node);
     class_unregister(hw2_class);
     class_destroy(hw2_class);
