@@ -25,17 +25,14 @@ static struct mydev_dev {
 } mydev;
 
 /* sys/modules/hw2/parameters */
-static int hw2_sys = 25;
-module_param(hw2_sys, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-MODULE_PARM_DESC(hw2_sys, "Device Integer");
+static int syscall_val = 25;
+module_param(syscall_val, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(syscall_val, "Device Integer");
 
 /* allows device to be opened using open sys call */
 static int hw2_open(struct inode *inode, struct file *file) {
 
     printk(KERN_INFO "opening hw2..\n");
-
-    /* value that we are reading and writing to */
-    mydev.syscall_val = hw2_sys;
 
     return 0;
 }
@@ -188,7 +185,8 @@ static int __init char_device_init(void) {
 	goto cdev_err;
     }
 
-    printk(KERN_INFO "module parameter [hw2_sys] is now %d...\n", hw2_sys);
+    mydev.syscall_val = syscall_val;
+    printk(KERN_INFO "module parameter [syscall_val] is now %d...\n", mydev.syscall_val);
     
     return ret;
 

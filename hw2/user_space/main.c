@@ -14,17 +14,18 @@ static char send[BUF_LEN];
 
 int main()
 {
-int fd;
+int fd[2];
 int ret = 0;
 int val;
 
-/* open device for reading */
-fd = open(CHAR_DEVICE, O_RDWR);
-if(fd < 0)
+/* open device for r/w */
+fd[0] = open(CHAR_DEVICE, O_RDWR);
+fd[1] = open(CHAR_DEVICE, O_RDWR);
+if((fd[0] < 0) || (fd[1] < 0))
     printf("\nUnable to open device...\n");
 
 /* read int value from char driver */
-ret = read(fd, recv, sizeof(int));
+ret = read(fd[0], recv, sizeof(int));
 if(ret < 0)
     printf("\nUnable to read device...\n");
 
@@ -37,20 +38,13 @@ sprintf(send, "%d", val + 5);
 
 printf("\nSending to device: %s\n", send);
 
-close(fd);
-
-/* open the device for writing */
-fd = open(CHAR_DEVICE, O_RDWR);
-if(fd < 0)
-    printf("\nUnable to open device...\n");
-
 /* write new value to device */
-ret = write(fd, send, sizeof(send));
+ret = write(fd[1], send, strlen(send));
 if(ret < 0)
     printf("\nUnable to write to device...\n");
 
 /* read new value from device */
-ret = read(fd, recv, sizeof(int));
+ret = read(fd[1], recv, sizeof(int));
 if(ret < 0)
     printf("\nUnable to read device...\n");
 
@@ -58,7 +52,8 @@ memcpy(&val, recv, sizeof(int) * sizeof(char));
 
 printf("\nRead %d back... after sending %s\n", val, send);
 
-close(fd);
+close(fd[0]);
+close(fd[1]);
 
 return 0;
 
