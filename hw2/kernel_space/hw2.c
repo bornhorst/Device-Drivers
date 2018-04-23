@@ -10,8 +10,8 @@
 #include <linux/slab.h>
 
 #define DEVCNT 1
-#define DEV_NAME  "hw2"
-#define DEV_CLASS "hw2_class"
+#define DEV_NAME  "hw2_dev"
+#define DEV_CLASS "hw2class"
 
 /* device class */
 static struct class *hw2_class = NULL;
@@ -20,6 +20,7 @@ static struct class *hw2_class = NULL;
 static struct mydev_dev {
     struct cdev cdev;
     dev_t mydev_node;
+    umode_t mode;
     int syscall_val;
 } mydev;
 
@@ -43,7 +44,6 @@ static ssize_t hw2_read(struct file *file, char __user *buf,
                         size_t len, loff_t *offset) {
 
     int ret;
-//    int temp_result;
 
     if(*offset >= sizeof(int))
         return 0;
@@ -59,14 +59,8 @@ static ssize_t hw2_read(struct file *file, char __user *buf,
     }
     ret = sizeof(int);
     *offset += len;
-/*
-    ret = kstrtoint(buf, 10, &temp_result);
-    if(ret != 0) {
-	printk(KERN_ERR "bad int conversion..\n");
-	return ret;
-    }
-*/
-    printk(KERN_INFO "User got from us %d.\n", mydev.syscall_val);
+
+    printk(KERN_INFO "User read from us %d...\n", mydev.syscall_val);
  
 out:
     return ret;
@@ -97,8 +91,10 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
     }
 
     ret = len;
+    
+    kstrtoint(buf, 10, &mydev.syscall_val); 
 
-    printk(KERN_INFO "Userspace wrote %s to us.\n", kern_buf);
+    printk(KERN_INFO "Userspace wrote %d to us...\n", mydev.syscall_val);
 
 mem_out:
     kfree(kern_buf);
@@ -113,42 +109,61 @@ static struct file_operations mydev_fops = {
     .write = hw2_write,
 };
 
+static char *my_devnode(struct device *dev, umode_t *mode) {
+
+    *mode = 0666;
+    return NULL;
+}
+
 /* create and initialize device here */
 static int __init char_device_init(void) {
 
     int ret = 0;
-    dev_t curr_dev;
     
     printk(KERN_INFO "hw2 module loading..\n");
-
+    
+    /* dynamic device allocation */
     ret = alloc_chrdev_region(&mydev.mydev_node, 0, DEVCNT, 
 			      DEV_NAME);
-    if(ret){
+    if(ret) {
         printk(KERN_ERR "alloc_chrdev_region failed\n");
         return ret;
     }
 
+    /* success at allocation */
     printk(KERN_INFO "allocated %d devices at major: %d minor: %d\n", 
            DEVCNT, MAJOR(mydev.mydev_node), MINOR(mydev.mydev_node));
     
+    /* create the device class /sys/class */
     hw2_class = class_create(THIS_MODULE, DEV_CLASS);
+    if(IS_ERR(hw2_class)) {
+	printk(KERN_ERR "problem creating device class...\n");
+	goto cdev_err;
+    }
+    printk(KERN_INFO "device class registered successfully...\n");
 
+    /* allow file operations on device */
     cdev_init(&mydev.cdev, &mydev_fops);
     mydev.cdev.owner = THIS_MODULE;
+    hw2_class -> devnode = my_devnode;
 
-    curr_dev = MKDEV(MAJOR(mydev.mydev_node), 
+    /* add cdev to core with device number */
+    mydev.mydev_node = MKDEV(MAJOR(mydev.mydev_node), 
 		           MINOR(mydev.mydev_node));
 
-
-    ret = cdev_add(&mydev.cdev, curr_dev, DEVCNT);
+    /* allow user to access device */
+    ret = cdev_add(&mydev.cdev, mydev.mydev_node, DEVCNT);
     if(ret) {
+	class_unregister(hw2_class);
 	class_destroy(hw2_class);
         printk(KERN_ERR "cdev add failed!\n");
         goto cdev_err;
     }
 
-    if(device_create(hw2_class, NULL, curr_dev, NULL, 
-		     DEV_NAME) == NULL) {
+    /* create the device node */
+    if(device_create(hw2_class, NULL, mydev.mydev_node, NULL, 
+	             DEV_NAME) == NULL) {
+	class_unregister(hw2_class);
 	class_destroy(hw2_class);
 	device_destroy(hw2_class, mydev.mydev_node);
 	printk(KERN_ERR "failed to create device...\n");
@@ -167,6 +182,7 @@ static void __exit char_device_exit(void) {
 
     cdev_del(&mydev.cdev);
     device_destroy(hw2_class, mydev.mydev_node);
+    class_unregister(hw2_class);
     class_destroy(hw2_class);
     unregister_chrdev_region(mydev.mydev_node, DEVCNT);
 
