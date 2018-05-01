@@ -5,18 +5,17 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdint.h>
 
 #define CHAR_DEVICE "/dev/char_dev"
-#define BUF_LEN     100
 
-static char recv[BUF_LEN];
-static char send[BUF_LEN];
 
 int main()
 {
 int fd;
-int ret = 0;
-unsigned int val;
+ssize_t readb;
+ssize_t writeb;
+uint32_t val;
 
 /* open device for r/w */
 fd = open(CHAR_DEVICE, O_RDWR);
@@ -25,21 +24,45 @@ if(fd < 0)
     printf("\nUnable to open device...\n");
 
 /* read int value from char driver */
-ret = read(fd, recv, sizeof(unsigned int));
-if(ret < 0)
-    printf("\nUnable to read device...\n");
+readb = read(fd, &val, sizeof(uint32_t));
+if(read < 0)
+    printf("\nUnable to read device...%ld\n", readb);
 
-memcpy(&val, recv, sizeof(unsigned int) * sizeof(char));
 
-printf("\nRead from device: 0x%08x\n", val);
+printf("\nRead from device: 0x%08x %ld\n", val, readb);
 
 close(fd);
 
 fd = open(CHAR_DEVICE, O_RDWR);
 
-strcpy(send, "0xa09");
+val = 0xe;
 
-ret = write(fd, send, strlen(send) + 1);
+
+writeb = write(fd, &val, sizeof(uint32_t));
+
+printf("\nSent to device: 0x%08x %ld\n", val, writeb);
+
+close(fd);
+
+fd = open(CHAR_DEVICE, O_RDWR);
+
+readb = read(fd, &val, sizeof(uint32_t));
+
+
+printf("\n2nd read from the device: 0x%08x %ld\n", val, readb);
+
+close(fd);
+
+fd = open(CHAR_DEVICE, O_RDWR);
+
+val = 0xf;
+
+
+sleep(2);
+
+writeb = write(fd, &val, sizeof(uint32_t));
+
+printf("\nSent to device: 0x%08x %ld\n", val, writeb);
 
 close(fd);
 

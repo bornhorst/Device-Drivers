@@ -64,6 +64,7 @@
 
 volatile void *e1000e_mem;
 char *portname;
+char *pci_bus_slot;
 
 
 /* map the network device into our memory space */
@@ -219,8 +220,8 @@ void print_leds()
 	led_bits = (ledctl >> E1000_LEDCTL_LED3_SHIFT) & 0xFF;
 	led3 = get_led_state(led_bits);
 
-	printf("%s:   %c %c %c %c\r",
-		portname,
+	printf("%s.0 LEDs:   %c %c %c %c\r",
+		pci_bus_slot,
 		led0 ? '0' : '.',
 		led1 ? '0' : '.',
 		led2 ? '0' : '.',
@@ -232,71 +233,83 @@ int main(int argc, char **argv)
 {
 	int dev_mem_fd;
 	char buf[128] = { 0 };
-	char driver_name[24] = { 0 };
-	char addr_str[24] = { 0 };
+	char pci_entry[128] = { 0 };
+	char addr_str[10] = { 0 };
 	bool readloop = false;
-	off_t base_addr; 
+	off_t base_addr;
 	FILE *input;
 	int ret = 0;
 	int len;
-	
+
 	if (getuid() != 0) {
-		printf("%s: must be run as root\n", argv[0]);
+		fprintf(stderr, "%s: must be run as root\n", argv[0]);
 		exit(1);
 	}
 
 	if (argv[1] == NULL) {
-		printf("Usage: %s <ethX> [-L]\n", argv[0]);
-		exit(1);
-	}
-	portname = argv[1];
-	if (strlen(portname) > IFNAMSIZ) {
-		printf("%s: bad interface name\n", argv[0]);
+		fprintf(stderr, "Usage: %s <bus:slot> [ethX] [-L]\n", argv[0]);
 		exit(1);
 	}
 
-	if (argc > 2 && strcmp(argv[2], "-L") == 0)
+	pci_bus_slot = argv[1];
+	snprintf(buf, sizeof(buf), "lspci -s %s.0", pci_bus_slot);
+
+	/* Index depends on whether or not user specified <ethX> argument */
+	if ((argc == 3 && strcmp(argv[2], "-L") == 0) ||
+	    (argc == 4 && strcmp(argv[3], "-L") == 0))
 		readloop = true;
 
-        /* find driver name to be sure we're using an e1000/e1000e device */
-	snprintf(buf, sizeof(buf),
-		 "basename `readlink /sys/class/net/%s/device/driver` 2>/dev/null",
-		 portname);
+	/* Does pci device specified by the user exist? */
 	input = popen(buf, "r");
 	if (!input) {
-		perror("getting driver name");
+		perror("pci entry specified does not exist");
 		exit(1);
 	}
-	fgets(driver_name, sizeof(driver_name), input);
+
+	fgets(pci_entry, sizeof(pci_entry), input);
+	fclose(input);
+	len = strlen(pci_entry);
+	if (len <= 1) {
+		fprintf(stderr, "%s.0 not found\n", pci_bus_slot);
+		exit(1);
+	}
+
+	/* Using the network interface to determine link speed is optional */
+	if (argc == 4 && strlen(argv[2]) > IFNAMSIZ)
+		fprintf(stderr, "%s: bad interface name\n", argv[0]);
+	else if (argc == 4)
+		portname = argv[2];
+
+#define LSPCI_DEVICE_TYPE_OFFSET 8
+	if (strncmp(pci_entry + LSPCI_DEVICE_TYPE_OFFSET, "Ethernet controller",
+		    strlen("Ethernet controller"))) {
+			fprintf(stderr, "%s wrong pci device\n", pci_entry);
+			exit(1);
+	}
+
+#define LSPCI_DEVICE_SPEED_OFFSET 55
+	if (strncmp(pci_entry + LSPCI_DEVICE_SPEED_OFFSET, "Gigabit",
+		    strlen("Gigabit"))) {
+		printf("%s\n", pci_entry + LSPCI_DEVICE_SPEED_OFFSET);
+		fprintf(stderr, "%s wrong pci device speed\n", pci_entry);
+		exit(1);
+	}
+
+	snprintf(buf, sizeof(buf),
+		 "lspci -s %s.0 -v | grep \"Memory at\" | awk '{ print $3 }'",
+		 pci_bus_slot);
+	input = popen(buf, "r");
+	if (!input) {
+		printf("%s\n", buf);
+		perror("getting device mem info");
+		exit(1);
+	}
+	fgets(addr_str, sizeof(addr_str), input);
 	fclose(input);
 
-	len = strlen(driver_name);
-	if (len <= 1) {
-		fprintf(stderr, "%s driver not found\n", portname);
-		exit(1);
-	}
-	if (strncmp(driver_name, "e1000", 5)) {
-		fprintf(stderr, "%s wrong driver\n", driver_name);
-		exit(1);
-	}
-
-        /* find the base memory address
-	 * we just need the start address of resource[0], so only
-	 * need to read the first line of the file.
-	 */
-        snprintf(buf, sizeof(buf),
-                 "/sys/class/net/%s/device/resource", portname);
-        input = fopen(buf, "r");
-        if (!input) {
-                perror("getting port mem info");
-                exit(1);
-        }
-        fgets(addr_str, sizeof(addr_str), input);
-        fclose(input);
-
-        base_addr = strtol(addr_str, NULL, 0);
+        base_addr = strtol(addr_str, NULL, 16);
         if (len <= 1) {
-                fprintf(stderr, "%s not found\n", portname);
+                fprintf(stderr, "%s memory address invalid\n", addr_str);
                 exit(1);
         }
 

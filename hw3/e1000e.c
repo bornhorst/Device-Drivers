@@ -21,11 +21,14 @@
 #define DEV_CLASS "char_class"
 
 /* pci driver */
-#define PCI_DEVICE_82540EM_D 0x100e
+#define PCI_DEVICE_82540EM_D 0x100E
 #define PCI_DEVICE_82540EM_V 0x8086
-#define LED_CNTRL_REG        0x00e00
+#define LED_CNTRL_REG        0x00E00
 #define DEV_CNTRL_REG        0x00000
-#define DEV_RESET	     0x84000000
+#define DEV_STATUS_REG	     0x8
+#define DEV_RESET	     0x80000000
+#define LED_CNTRL_MASK       0xF
+#define LED0_ON		     0xE
 
 /* char device class */
 static struct class *char_class = NULL;
@@ -38,11 +41,11 @@ static struct mydev_dev {
 } mydev;
 
 /* pci driver name */
-static char *driver_name = "my_driver";
+static char *driver_name = "my_pci_driver";
 
 /* pci table struct */
 static const struct pci_device_id my_pci_tbl[] = {
-	{ PCI_DEVICE(PCI_DEVICE_82540EM_V, PCI_DEVICE_82540EM_D), 0, 0, 0},
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_82540EM_D), 0, 0, 0},
 
 	/* last entry */
 	{0, }
@@ -52,14 +55,15 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Ryan Bornhorst");
 
 /* module parameter for reading led register */
-static unsigned int led_reg;
-module_param(led_reg, uint, 0);
+u32 led_reg;
 
 /* pci struct */
 struct mydev_s {
 	struct pci_dev *pdev;
 	void *hw_addr;
 };
+
+struct mydev_s *devs;
 
 /******************************************************************************
 
@@ -78,25 +82,27 @@ static int hw2_open(struct inode *inode, struct file *file) {
 /* allows device to be read from using read sys call */
 static ssize_t hw2_read(struct file *file, char __user *buf, 
                         size_t len, loff_t *offset) {
-
     int ret;
-
-    if(*offset >= sizeof(unsigned int))
+ 
+    if(*offset >= sizeof(u32))
         return 0;
 
-    if(!buf){
+    if(!buf) {
         ret = -EINVAL;
         goto out;
     }
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    printk(KERN_INFO "led reg before read 0x%08x", led_reg);
 
-    if(copy_to_user(buf, &led_reg, sizeof(unsigned int))) {
+
+    if(copy_to_user(buf, &led_reg, sizeof(u32))) {
         ret = -EFAULT;
         goto out;
     }
-    ret = sizeof(unsigned int);
+    ret = sizeof(u32);
     *offset += len;
 
-    printk(KERN_INFO "User read from us %x...\n", led_reg);
+    printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, sizeof(led_reg));
  
 out:
     return ret;
@@ -106,23 +112,17 @@ out:
 static ssize_t hw2_write(struct file *file, const char __user *buf, 
              size_t len, loff_t *offset) {
 
-    char *kern_buf;
     int ret;
+    u32 user_write;
 
     if(!buf) {
         ret = -EINVAL;
         goto out;
     } 
 
-    kern_buf = kmalloc(len, GFP_KERNEL);
 
-    if(!kern_buf) {
-        ret = -ENOMEM;
-	printk(KERN_ERR "bad malloc...\n");
-        goto out;
-    }
-
-    if(copy_from_user(kern_buf, buf, len)) {
+      
+    if(copy_from_user(&user_write, buf, len)) {
         ret = -EFAULT;
 	printk(KERN_ERR "bad copy from user...\n");
         goto mem_out;
@@ -130,12 +130,15 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
 
     ret = len;
     
-    kstrtouint(buf, 16, &led_reg); 
 
-    printk(KERN_INFO "Userspace wrote %x to us...\n", led_reg);
+    printk(KERN_INFO "Userspace wrote 0x%08x to us...%ld\n", user_write, sizeof(user_write));
+    
+    writel(user_write, devs->hw_addr + LED_CNTRL_REG);
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+
+    printk(KERN_INFO "led_reg after write = 0x%08x %ld\n", led_reg, sizeof(led_reg));
 
 mem_out:
-    kfree(kern_buf);
 out:
     return ret;
 }
@@ -166,17 +169,13 @@ static char *my_devnode(struct device *dev, umode_t *mode) {
         *mode = 0666;
 
     return NULL;
-}
+}	
 
 /* pci probe function */
 static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
-	struct mydev_s *devs;
 	u32 ioremap_len;
-	u32 dev_cntrl;
-	u32 led_cntrl;
-	u32 config1;
-	u32 config2;
+	u32 config;
 	int err;
 
 	err = pci_enable_device_mem(pdev);
@@ -215,15 +214,17 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 			 (unsigned int)pci_resource_len(pdev, 0), err);
 		goto err_ioremap;
 	}
-	
-	config1 = readl(devs->hw_addr + DEV_CNTRL_REG);
-	dev_info(&pdev->dev, "config1 = 0x%08x\n", config1);
 
-	config2 = readl(devs->hw_addr + DEV_CNTRL_REG + LED_CNTRL_REG);
-	dev_info(&pdev->dev, "config2 = 0x%08x\n", config2);
-
-	led_reg = config2;
-	dev_info(&pdev->dev, "led_reg = 0x%08x\n", led_reg);
+	config = readl(devs->hw_addr + DEV_CNTRL_REG);
+	dev_info(&pdev->dev, "control reg = 0x%08x\n", config);
+	config = (config | DEV_RESET);
+	writel(config, devs->hw_addr + DEV_CNTRL_REG);
+	udelay(20);
+	config = 0x00000000;
+	writel(config, devs->hw_addr + DEV_CNTRL_REG);
+	udelay(20);
+	config = readl(devs->hw_addr + DEV_CNTRL_REG);
+	dev_info(&pdev->dev, "control reg after rst = 0x%08x\n", config);
 
 	return 0;
 
@@ -239,7 +240,8 @@ err_dma:
 
 static void dev_remove(struct pci_dev *pdev) {
 
-	struct mydev_s *devs = pci_get_drvdata(pdev);
+	devs = pci_get_drvdata(pdev);
+	dev_info(&pdev->dev, "removing pci device...\n");
 
 	iounmap(devs->hw_addr);
 
@@ -250,7 +252,7 @@ static void dev_remove(struct pci_dev *pdev) {
 }
 
 static struct pci_driver my_driver = {
-	.name     = "my_e1000",
+	.name     = "e1000e",
 	.id_table = my_pci_tbl,
 	.probe    = dev_probe,
 	.remove   = dev_remove,
@@ -261,6 +263,9 @@ static int __init hello_init(void) {
     int ret = 0;
     
     printk(KERN_INFO "pci module loading..\n");
+ 
+    /* register the pci device */
+    ret = pci_register_driver(&my_driver);
     
     /* dynamic device allocation */
     ret = alloc_chrdev_region(&mydev.mydev_node, 0, DEVCNT, 
@@ -311,9 +316,7 @@ static int __init hello_init(void) {
 	goto cdev_err;
     }
 
-    /* register the pci device */
-    ret = pci_register_driver(&my_driver);
-    
+   
     return ret;
 
 cdev_err:
@@ -324,16 +327,15 @@ cdev_err:
 
 static void __exit hello_exit(void) {
 
+    /* unregister the pci device */
+    pci_unregister_driver(&my_driver);
+ 
     device_destroy(char_class, mydev.mydev_node);
     class_unregister(char_class);
     class_destroy(char_class);
     unregister_chrdev_region(mydev.mydev_node, DEVCNT);
-
-    /* unregister the pci device */
-    pci_unregister_driver(&my_driver);
-    
+   
     printk(KERN_INFO "pci module unloaded..\n");
-
 }
 
 module_init(hello_init);
