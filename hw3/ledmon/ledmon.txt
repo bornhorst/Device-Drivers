@@ -1,6 +1,3 @@
-ledmon
-Shannon Nelson
-Mon Apr 23 13:45:59 PDT 2018
 
 This is a simple user-land tool for watching the LEDs on an Intel
 e1000/e1000e based NIC.  Simply compile with "make" and run as root.
@@ -10,29 +7,55 @@ the code so you are sure that there are no security issues lurking)
 sln
 
 ---------------------------------------
+ledmon
+Version 3
+Mon Apr 30 21:23:53 PDT 2018
+
 
 NAME
 	ledmon - watch LEDs on an Intel e1000/e1000e NIC
 
 SYNOPSIS
-	ledmon <ethX> [-L]
+	ledmon -s <pci-addr> [-L] [-v] [ethportname]
 
 DESCRIPTION
 	Print the current state of the four LEDs on an Intel e1000/e1000e
-	based NIC, as specified by <ethX> on the command line.
+	based NIC, as specified by <bus:slot.func> on the command line.
 
 	-L	run in a continuous loop
+	-v	print the version and exit
 
 EXAMPLE
-	ledmon ens3
+	ledmon -s 00:08
 		Show the current state of the ens3 LEDs
 
-	ledmon eth4
+	ledmon -s 00:08 -L
 		Show the LED states over and over, looping several times
 		per second, so the changes can be seen.
+
+	ledmon -s 00:08 -L eth0
+		Show the LED states over and over, looping several times
+		per second, so the changes can be seen.  Also use the
+		network interface (eth0) to determine link speed.  This
+		option is only valid when the e1000/e1000e driver is still
+		loaded.
+
+	ledmon -v
+		Show the current version of the program.
 
 NOTES
 	This is not useful for any other NIC.
 
 	This must be run as root.
 
+	If the ethportname is not specified, the current speed and link
+	information cannot be used in figuring out what LEDs are lighted,
+	thus perhaps not quite matching reality.  If the ethport driver
+	has been unloaded, there is no speed or link, so they won't be a
+	factor in setting the LED states.  Either one of these cases will
+	result in this program showing LEDs as off when LEDCTL is in a
+	default configuration.
+
+AUTHORS
+	Shannon Nelson
+	Brett Creeley
