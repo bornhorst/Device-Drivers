@@ -27,7 +27,7 @@
 #define DEV_CNTRL_REG        0x00000
 #define DEV_STATUS_REG	     0x8
 #define DEV_RESET	     0x80000000
-#define LED_CNTRL_MASK       0xF
+#define LED0_OFF             0xF
 #define LED0_ON		     0xE
 
 /* char device class */
@@ -55,7 +55,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Ryan Bornhorst");
 
 /* module parameter for reading led register */
-u32 led_reg;
+uint32_t led_reg;
 
 /* pci struct */
 struct mydev_s {
@@ -84,22 +84,22 @@ static ssize_t hw2_read(struct file *file, char __user *buf,
                         size_t len, loff_t *offset) {
     int ret;
  
-    if(*offset >= sizeof(u32))
+    if(*offset >= sizeof(uint32_t))
         return 0;
 
     if(!buf) {
         ret = -EINVAL;
         goto out;
     }
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG + 0x4);
     printk(KERN_INFO "led reg before read 0x%08x", led_reg);
 
-
-    if(copy_to_user(buf, &led_reg, sizeof(u32))) {
+    if(copy_to_user(buf, &led_reg, sizeof(uint32_t))) {
         ret = -EFAULT;
         goto out;
     }
-    ret = sizeof(u32);
+    ret = sizeof(uint32_t);
     *offset += len;
 
     printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, sizeof(led_reg));
@@ -113,7 +113,7 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
              size_t len, loff_t *offset) {
 
     int ret;
-    u32 user_write;
+    uint32_t user_write;
 
     if(!buf) {
         ret = -EINVAL;
@@ -134,7 +134,7 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
     printk(KERN_INFO "Userspace wrote 0x%08x to us...%ld\n", user_write, sizeof(user_write));
     
     writel(user_write, devs->hw_addr + LED_CNTRL_REG);
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG + 0x4);
 
     printk(KERN_INFO "led_reg after write = 0x%08x %ld\n", led_reg, sizeof(led_reg));
 
@@ -166,7 +166,7 @@ static char *my_devnode(struct device *dev, umode_t *mode) {
 
     /* give r/w permission to users */
     if(dev -> devt == mydev.mydev_node)
-        *mode = 0666;
+        *mode = 0777;
 
     return NULL;
 }	
@@ -174,8 +174,8 @@ static char *my_devnode(struct device *dev, umode_t *mode) {
 /* pci probe function */
 static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
-	u32 ioremap_len;
-	u32 config;
+	uint32_t ioremap_len;
+	uint32_t config;
 	int err;
 
 	err = pci_enable_device_mem(pdev);
@@ -206,6 +206,7 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 	pci_set_drvdata(pdev, devs);
 
 	ioremap_len = min_t(int, pci_resource_len(pdev, 0), 1024);
+	dev_info(&pdev->dev, "ioremap len 0x%08x\n", ioremap_len);
 	devs->hw_addr = ioremap(pci_resource_start(pdev, 0), ioremap_len);
 	if(!devs->hw_addr) {
 		err = -EIO;
@@ -214,17 +215,21 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 			 (unsigned int)pci_resource_len(pdev, 0), err);
 		goto err_ioremap;
 	}
-
+/*
 	config = readl(devs->hw_addr + DEV_CNTRL_REG);
-	dev_info(&pdev->dev, "control reg = 0x%08x\n", config);
-	config = (config | DEV_RESET);
+	dev_info(&pdev->dev, "cntrl reg 0x%08x", config);
+	config = 0x80000249;
 	writel(config, devs->hw_addr + DEV_CNTRL_REG);
 	udelay(20);
-	config = 0x00000000;
+	config = 0x00000249;
 	writel(config, devs->hw_addr + DEV_CNTRL_REG);
-	udelay(20);
+*/
 	config = readl(devs->hw_addr + DEV_CNTRL_REG);
-	dev_info(&pdev->dev, "control reg after rst = 0x%08x\n", config);
+	dev_info(&pdev->dev, "cntrl reg 0x%08x", config);
+	config = readl(devs->hw_addr + LED_CNTRL_REG + 0x4);
+	dev_info(&pdev->dev, "led cntrl reg 0x%08x", config);
+	config = readl(devs->hw_addr);
+	dev_info(&pdev->dev, "mmio starts at 0x%08x", config);
 
 	return 0;
 

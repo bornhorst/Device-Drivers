@@ -25,7 +25,7 @@ if(fd < 0)
 
 /* read int value from char driver */
 readb = read(fd, &val, sizeof(uint32_t));
-if(read < 0)
+if(readb < 0)
     printf("\nUnable to read device...%ld\n", readb);
 
 
@@ -52,11 +52,10 @@ readb = read(fd, &val, sizeof(uint32_t));
 printf("\n2nd read from the device: 0x%08x %ld\n", val, readb);
 
 close(fd);
-
+/*
 fd = open(CHAR_DEVICE, O_RDWR);
 
 val = 0xf;
-
 
 sleep(2);
 
@@ -65,7 +64,7 @@ writeb = write(fd, &val, sizeof(uint32_t));
 printf("\nSent to device: 0x%08x %ld\n", val, writeb);
 
 close(fd);
-
+*/
 return 0;
 
 }
