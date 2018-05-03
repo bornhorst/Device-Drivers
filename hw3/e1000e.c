@@ -1,6 +1,6 @@
 /* 
-   pci driver 
-   ryan bornhorst
+   PCI Driver 
+   5-2-18
 */
 
 #include <linux/init.h>
@@ -21,14 +21,10 @@
 #define DEV_CLASS "char_class"
 
 /* pci driver */
-#define PCI_DEVICE_82540EM_D 0x100E
+#define PCI_DEVICE_82545EM_D 0x100F
 #define PCI_DEVICE_82540EM_V 0x8086
 #define LED_CNTRL_REG        0x00E00
 #define DEV_CNTRL_REG        0x00000
-#define DEV_STATUS_REG	     0x8
-#define DEV_RESET	     0x80000000
-#define LED0_OFF             0xF
-#define LED0_ON		     0xE
 
 /* char device class */
 static struct class *char_class = NULL;
@@ -45,7 +41,7 @@ static char *driver_name = "my_pci_driver";
 
 /* pci table struct */
 static const struct pci_device_id my_pci_tbl[] = {
-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_82540EM_D), 0, 0, 0},
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_82545EM_D), 0, 0, 0},
 
 	/* last entry */
 	{0, }
@@ -54,7 +50,7 @@ MODULE_DEVICE_TABLE(pci, my_pci_tbl);
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Ryan Bornhorst");
 
-/* module parameter for reading led register */
+/* stores the contents of the led cntrl register */
 uint32_t led_reg;
 
 /* pci struct */
@@ -63,6 +59,7 @@ struct mydev_s {
 	void *hw_addr;
 };
 
+/* global pci struct variable */
 struct mydev_s *devs;
 
 /******************************************************************************
@@ -92,8 +89,8 @@ static ssize_t hw2_read(struct file *file, char __user *buf,
         goto out;
     }
 
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG + 0x4);
-    printk(KERN_INFO "led reg before read 0x%08x", led_reg);
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    printk(KERN_INFO "led_reg before read 0x%08x", led_reg);
 
     if(copy_to_user(buf, &led_reg, sizeof(uint32_t))) {
         ret = -EFAULT;
@@ -102,7 +99,8 @@ static ssize_t hw2_read(struct file *file, char __user *buf,
     ret = sizeof(uint32_t);
     *offset += len;
 
-    printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, sizeof(led_reg));
+    printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, 
+	   sizeof(led_reg));
  
 out:
     return ret;
@@ -119,8 +117,6 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
         ret = -EINVAL;
         goto out;
     } 
-
-
       
     if(copy_from_user(&user_write, buf, len)) {
         ret = -EFAULT;
@@ -130,13 +126,14 @@ static ssize_t hw2_write(struct file *file, const char __user *buf,
 
     ret = len;
     
-
-    printk(KERN_INFO "Userspace wrote 0x%08x to us...%ld\n", user_write, sizeof(user_write));
+    printk(KERN_INFO "userspace wrote 0x%08x to us...%ld\n", user_write, 
+	   sizeof(user_write));
     
     writel(user_write, devs->hw_addr + LED_CNTRL_REG);
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG + 0x4);
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
 
-    printk(KERN_INFO "led_reg after write = 0x%08x %ld\n", led_reg, sizeof(led_reg));
+    printk(KERN_INFO "led_reg after write = 0x%08x %ld\n", led_reg, 
+	   sizeof(led_reg));
 
 mem_out:
 out:
@@ -150,6 +147,7 @@ static int hw2_release(struct inode *inode, struct file *file) {
     return 0;
 }
 
+/* struct for file ops */
 static struct file_operations mydev_fops = {
     .owner   = THIS_MODULE,
     .open    = hw2_open,
@@ -215,18 +213,10 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 			 (unsigned int)pci_resource_len(pdev, 0), err);
 		goto err_ioremap;
 	}
-/*
+
 	config = readl(devs->hw_addr + DEV_CNTRL_REG);
 	dev_info(&pdev->dev, "cntrl reg 0x%08x", config);
-	config = 0x80000249;
-	writel(config, devs->hw_addr + DEV_CNTRL_REG);
-	udelay(20);
-	config = 0x00000249;
-	writel(config, devs->hw_addr + DEV_CNTRL_REG);
-*/
-	config = readl(devs->hw_addr + DEV_CNTRL_REG);
-	dev_info(&pdev->dev, "cntrl reg 0x%08x", config);
-	config = readl(devs->hw_addr + LED_CNTRL_REG + 0x4);
+	config = readl(devs->hw_addr + LED_CNTRL_REG);
 	dev_info(&pdev->dev, "led cntrl reg 0x%08x", config);
 	config = readl(devs->hw_addr);
 	dev_info(&pdev->dev, "mmio starts at 0x%08x", config);
@@ -243,9 +233,11 @@ err_dma:
 	return err;
 }
 
+/* removes pci device during unbind or rmmod */
 static void dev_remove(struct pci_dev *pdev) {
 
 	devs = pci_get_drvdata(pdev);
+
 	dev_info(&pdev->dev, "removing pci device...\n");
 
 	iounmap(devs->hw_addr);
@@ -256,6 +248,7 @@ static void dev_remove(struct pci_dev *pdev) {
 	pci_disable_device(pdev);
 }
 
+/* struct for the pci device */
 static struct pci_driver my_driver = {
 	.name     = "e1000e",
 	.id_table = my_pci_tbl,
@@ -263,6 +256,7 @@ static struct pci_driver my_driver = {
 	.remove   = dev_remove,
 };
 
+/* function for insmod call */
 static int __init hello_init(void) {
 
     int ret = 0;
@@ -330,6 +324,7 @@ cdev_err:
 
 }
 
+/* function for rmmod call */
 static void __exit hello_exit(void) {
 
     /* unregister the pci device */
