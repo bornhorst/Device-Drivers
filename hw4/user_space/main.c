@@ -25,20 +25,16 @@ readb = read(fd, &blink, sizeof(int));
 if(readb < 0)
     printf("\nUnable to read device...%ld\n", readb);
 
-printf("\nRead from device: %d    %ld\n", blink, readb);
-
-sleep(5);
+printf("\nRead from device: %d\n", blink);
 
 printf("\nEnter a new blink rate: ");
 scanf("%d", &blink);
 
 writeb = write(fd, &blink, sizeof(int));
 if(writeb < 0)
-    printf("\nUnable to write to device...\n");
+    printf("\nUnable to write to device...%ld\n", writeb);
 
-printf("\nSent to device: %d    %ld\n", blink, writeb);
-
-sleep(5);
+printf("\nSent to device: %d\n\n", blink);
 
 close(fd);
 
