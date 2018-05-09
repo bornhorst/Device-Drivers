@@ -1,6 +1,7 @@
 /* 
-   PCI Driver 
-   5-2-18
+   	PCI Driver
+	Homework #3 
+   	5-2-18
 */
 
 #include <linux/init.h>
@@ -31,9 +32,9 @@ static struct class *char_class = NULL;
 
 /* char device struct */
 static struct mydev_dev {
-    struct cdev cdev;
-    dev_t mydev_node;
-    umode_t mode;
+    	struct cdev cdev;
+    	dev_t mydev_node;
+    	umode_t mode;
 } mydev;
 
 /* pci driver name */
@@ -71,109 +72,105 @@ FUNCTIONS
 /* allows device to be opened using open sys call */
 static int dev_open(struct inode *inode, struct file *file) {
 
-    printk(KERN_INFO "opening char device..\n");
+    	printk(KERN_INFO "opening char device..\n");
 
-    return 0;
+    	return 0;
 }
 
 /* allows device to be read from using read sys call */
 static ssize_t dev_read(struct file *file, char __user *buf, 
                         size_t len, loff_t *offset) {
-    int ret;
+    	int ret;
  
-    if(*offset >= sizeof(uint32_t))
-        return 0;
+    	if(*offset >= sizeof(uint32_t))
+        	return 0;
 
-    if(!buf) {
-        ret = -EINVAL;
-        goto out;
-    }
+    	if(!buf) {
+        	ret = -EINVAL;
+        	goto out;
+    	}
 
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
-    printk(KERN_INFO "led_reg before read 0x%08x", led_reg);
+    	led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    	printk(KERN_INFO "led_reg before read 0x%08x", led_reg);
 
-    if(copy_to_user(buf, &led_reg, sizeof(uint32_t))) {
-        ret = -EFAULT;
-        goto out;
-    }
-    ret = sizeof(uint32_t);
-    *offset += len;
+    	if(copy_to_user(buf, &led_reg, sizeof(uint32_t))) {
+        	ret = -EFAULT;
+        	goto out;
+    	}
+    	ret = sizeof(uint32_t);
+    	*offset += len;
 
-    printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, 
-	   sizeof(led_reg));
+    	printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, 
+	       sizeof(led_reg));
  
 out:
-    return ret;
+    	return ret;
 }
 
 /* allows device to be written to using write sys call */
 static ssize_t dev_write(struct file *file, const char __user *buf, 
-             size_t len, loff_t *offset) {
+             		 size_t len, loff_t *offset) {
 
-    int ret;
-    uint32_t user_write;
+    	int ret;
+    	uint32_t user_write;
 
-    if(!buf) {
-        ret = -EINVAL;
-        goto out;
-    } 
+   	if(!buf) {
+        	ret = -EINVAL;
+        	goto out;
+    	} 
       
-    if(copy_from_user(&user_write, buf, len)) {
-        ret = -EFAULT;
-	printk(KERN_ERR "bad copy from user...\n");
-        goto mem_out;
-    }
+    	if(copy_from_user(&user_write, buf, len)) {
+        	ret = -EFAULT;
+		printk(KERN_ERR "bad copy from user...\n");
+        	goto out;
+    	}
 
-    ret = len;
+    	ret = len;
     
-    printk(KERN_INFO "userspace wrote 0x%08x to us...%ld\n", user_write, 
-	   sizeof(user_write));
+    	printk(KERN_INFO "userspace wrote 0x%08x to us...\n", user_write);
     
-    writel(user_write, devs->hw_addr + LED_CNTRL_REG);
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    	writel(user_write, devs->hw_addr + LED_CNTRL_REG);
+    	led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
 
-    printk(KERN_INFO "led_reg after write = 0x%08x %ld\n", led_reg, 
-	   sizeof(led_reg));
+    	printk(KERN_INFO "led_reg after write = 0x%08x\n", led_reg);
 
-mem_out:
 out:
-    return ret;
+    	return ret;
 }
 
 /* releases the device with the close() sys call */
 static int dev_release(struct inode *inode, struct file *file) {
 
-    printk(KERN_INFO "device was released...\n");
-    return 0;
+    	printk(KERN_INFO "device was released...\n");
+    	return 0;
 }
 
 /* struct for file ops */
 static struct file_operations mydev_fops = {
-    .owner   = THIS_MODULE,
-    .open    = dev_open,
-    .read    = dev_read,
-    .write   = dev_write,
-    .release = dev_release,
+    	.owner   = THIS_MODULE,
+    	.open    = dev_open,
+    	.read    = dev_read,
+    	.write   = dev_write,
+    	.release = dev_release,
 };
 
 /* function that allows access to device permissions */
 static char *my_devnode(struct device *dev, umode_t *mode) {
 
-    if(!mode)
-	return NULL;
+    	if(!mode)
+		return NULL;
 
-    /* give r/w permission to users */
-    if(dev -> devt == mydev.mydev_node)
-        *mode = 0777;
+    	/* give r/w permission to users */
+    	if(dev -> devt == mydev.mydev_node)
+           *mode = 0777;
 
-    return NULL;
+    	return NULL;
 }	
 
 /* pci probe function */
 static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
 	uint32_t ioremap_len;
-	uint32_t config;
 	int err;
 
 	err = pci_enable_device_mem(pdev);
@@ -204,7 +201,6 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 	pci_set_drvdata(pdev, devs);
 
 	ioremap_len = min_t(int, pci_resource_len(pdev, 0), 1024);
-	dev_info(&pdev->dev, "ioremap len 0x%08x\n", ioremap_len);
 	devs->hw_addr = ioremap(pci_resource_start(pdev, 0), ioremap_len);
 	if(!devs->hw_addr) {
 		err = -EIO;
@@ -213,13 +209,6 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 			 (unsigned int)pci_resource_len(pdev, 0), err);
 		goto err_ioremap;
 	}
-
-	config = readl(devs->hw_addr + DEV_CNTRL_REG);
-	dev_info(&pdev->dev, "cntrl reg 0x%08x", config);
-	config = readl(devs->hw_addr + LED_CNTRL_REG);
-	dev_info(&pdev->dev, "led cntrl reg 0x%08x", config);
-	config = readl(devs->hw_addr);
-	dev_info(&pdev->dev, "mmio starts at 0x%08x", config);
 
 	return 0;
 
@@ -259,83 +248,81 @@ static struct pci_driver my_driver = {
 /* function for insmod call */
 static int __init hello_init(void) {
 
-    int ret = 0;
+    	int ret = 0;
     
-    printk(KERN_INFO "pci module loading..\n");
+    	printk(KERN_INFO "pci module loading..\n");
  
-    /* register the pci device */
-    ret = pci_register_driver(&my_driver);
+    	/* register the pci device */
+    	ret = pci_register_driver(&my_driver);
     
-    /* dynamic device allocation */
-    ret = alloc_chrdev_region(&mydev.mydev_node, 0, DEVCNT, 
+    	/* dynamic device allocation */
+    	ret = alloc_chrdev_region(&mydev.mydev_node, 0, DEVCNT, 
 			      DEV_NAME);
-    if(ret) {
-        printk(KERN_ERR "alloc_chrdev_region failed\n");
-        return ret;
-    }
+    	if(ret) {
+        	printk(KERN_ERR "alloc_chrdev_region failed\n");
+        	return ret;
+    	}
 
-    /* success at allocation */
-    printk(KERN_INFO "allocated %d devices at major: %d minor: %d\n", 
-           DEVCNT, MAJOR(mydev.mydev_node), MINOR(mydev.mydev_node));
+    	/* success at allocation */
+    	printk(KERN_INFO "allocated %d devices at major: %d minor: %d\n", 
+               DEVCNT, MAJOR(mydev.mydev_node), MINOR(mydev.mydev_node));
     
-    /* create the device class /sys/class */
-    char_class = class_create(THIS_MODULE, DEV_CLASS);
-    /* change file permissions */
-    char_class -> devnode = my_devnode;
-    if(IS_ERR(char_class)) {
-	printk(KERN_ERR "problem creating device class...\n");
-	goto cdev_err;
-    }
-    printk(KERN_INFO "device class registered successfully...\n");
+    	/* create the device class /sys/class */
+    	char_class = class_create(THIS_MODULE, DEV_CLASS);
+    	/* change file permissions */
+    	char_class -> devnode = my_devnode;
+    	if(IS_ERR(char_class)) {
+		printk(KERN_ERR "problem creating device class...\n");
+		goto cdev_err;
+    	}
+    	printk(KERN_INFO "device class registered successfully...\n");
 
-    /* allow file operations on device */
-    cdev_init(&mydev.cdev, &mydev_fops);
-    mydev.cdev.owner = THIS_MODULE;
+    	/* allow file operations on device */
+    	cdev_init(&mydev.cdev, &mydev_fops);
+    	mydev.cdev.owner = THIS_MODULE;
 
-    /* add cdev to core with device number */
-    mydev.mydev_node = MKDEV(MAJOR(mydev.mydev_node), 
-		             MINOR(mydev.mydev_node));
+    	/* add cdev to core with device number */
+    	mydev.mydev_node = MKDEV(MAJOR(mydev.mydev_node), 
+		                 MINOR(mydev.mydev_node));
 
-    /* allow user to access device */
-    ret = cdev_add(&mydev.cdev, mydev.mydev_node, DEVCNT);
-    if(ret) {
-	class_unregister(char_class);
-	class_destroy(char_class);
-        printk(KERN_ERR "cdev add failed!\n");
-        goto cdev_err;
-    }
+    	/* allow user to access device */
+    	ret = cdev_add(&mydev.cdev, mydev.mydev_node, DEVCNT);
+    	if(ret) {
+		class_unregister(char_class);
+		class_destroy(char_class);
+        	printk(KERN_ERR "cdev add failed!\n");
+        	goto cdev_err;
+    	}
 
-    /* create the device node */
-    if(device_create(char_class, NULL, mydev.mydev_node, NULL, 
-	             DEV_NAME) == NULL) {
-	class_unregister(char_class);
-	class_destroy(char_class);
-	device_destroy(char_class, mydev.mydev_node);
-	printk(KERN_ERR "failed to create device...\n");
-	goto cdev_err;
-    }
+    	/* create the device node */
+    	if(device_create(char_class, NULL, mydev.mydev_node, NULL, 
+	                 DEV_NAME) == NULL) {
+		class_unregister(char_class);
+		class_destroy(char_class);
+		device_destroy(char_class, mydev.mydev_node);
+		printk(KERN_ERR "failed to create device...\n");
+		goto cdev_err;
+    	}
 
-   
-    return ret;
+    	return ret;
 
 cdev_err:
-    unregister_chrdev_region(mydev.mydev_node, DEVCNT);
-    return ret;  
-
+    	unregister_chrdev_region(mydev.mydev_node, DEVCNT);
+    	return ret;  
 }
 
 /* function for rmmod call */
 static void __exit hello_exit(void) {
 
-    /* unregister the pci device */
-    pci_unregister_driver(&my_driver);
+    	/* unregister the pci device */
+    	pci_unregister_driver(&my_driver);
  
-    device_destroy(char_class, mydev.mydev_node);
-    class_unregister(char_class);
-    class_destroy(char_class);
-    unregister_chrdev_region(mydev.mydev_node, DEVCNT);
+    	device_destroy(char_class, mydev.mydev_node);
+    	class_unregister(char_class);
+    	class_destroy(char_class);
+    	unregister_chrdev_region(mydev.mydev_node, DEVCNT);
    
-    printk(KERN_INFO "pci module unloaded..\n");
+    	printk(KERN_INFO "pci module unloaded..\n");
 }
 
 module_init(hello_init);

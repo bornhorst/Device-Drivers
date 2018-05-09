@@ -33,9 +33,9 @@ static struct class *char_class = NULL;
 
 /* char device struct */
 static struct mydev_dev {
-    struct cdev cdev;
-    dev_t mydev_node;
-    umode_t mode;
+    	struct cdev cdev;
+    	dev_t mydev_node;
+    	umode_t mode;
 } mydev;
 
 /* pci driver name */
@@ -49,7 +49,7 @@ static const struct pci_device_id my_pci_tbl[] = {
 	{0, }
 };
 MODULE_DEVICE_TABLE(pci, my_pci_tbl);
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Ryan Bornhorst");
 
 /* stores the contents of the led cntrl register */
@@ -81,7 +81,8 @@ void timer_cb(unsigned long data) {
 	uint32_t config;
 
 	config = readl(devs->hw_addr + LED_CNTRL_REG);
-
+	
+	/* blink led0 on/off */
 	if(config != 0x0000000E) {
 		config = 0xE;
 		writel(config, devs->hw_addr + LED_CNTRL_REG);
@@ -91,6 +92,7 @@ void timer_cb(unsigned long data) {
 		writel(config, devs->hw_addr + LED_CNTRL_REG);
 	}
 
+	/* double the rate to guarantee 50% duty cycle */
 	data = blink_rate*2;
 
 	mod_timer(&my_timer, HZ/data + jiffies);

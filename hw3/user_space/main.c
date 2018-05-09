@@ -26,34 +26,35 @@ readb = read(fd, &val, sizeof(uint32_t));
 if(readb < 0)
     printf("\nUnable to read device...%ld\n", readb);
 
-printf("\nRead from device: 0x%08x %ld\n", val, readb);
+printf("\nRead from device: 0x%08x\n", val);
 
 /* turn on led0 */
-val = (val & 0xFFFFFFF0);
-val = (val | 0x0000000e);
+val = 0xe;
 
+/* write value to turn on led0 */
 writeb = write(fd, &val, sizeof(uint32_t));
 if(writeb < 0)
-    printf("\nUnable to write to device...\n");
+    printf("\nUnable to write to device...%ld\n", writeb);
 
-printf("\nSent to device: 0x%08x %ld\n", val, writeb);
+printf("\nSent to device: 0x%08x\n", val);
 
+/* read led_reg contents */
 readb = read(fd, &val, sizeof(uint32_t));
 if(readb < 0)
-    printf("\nUnable to read from device...\n");
+    printf("\nUnable to read from device...%ld\n", readb);
 
-printf("\n2nd read from the device: 0x%08x %ld\n", val, readb);
+printf("\n2nd read from the device: 0x%08x\n", val);
 
-val = (val & 0xFFFFFFF0);
-val = (val | 0x0000000f);
+val = 0xf;
 
 sleep(2);
 
+/* write value to turn off led0 */
 writeb = write(fd, &val, sizeof(uint32_t));
 if(writeb < 0)
-    printf("\nUnable to write to device...\n");
+    printf("\nUnable to write to device...%ld\n", writeb);
 
-printf("\nSent to device: 0x%08x %ld\n", val, writeb);
+printf("\nSent to device: 0x%08x\n\n", val);
 
 close(fd);
 
