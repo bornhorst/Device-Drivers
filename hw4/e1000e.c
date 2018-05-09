@@ -14,10 +14,11 @@
 #include <linux/uaccess.h>
 #include <linux/usb.h>
 #include <linux/slab.h>
+#include <linux/timer.h>
 
 /* char driver */
 #define DEVCNT 1
-#define DEV_NAME  "char_dev"
+#define DEV_NAME  "ece_led"
 #define DEV_CLASS "char_class"
 
 /* pci driver */
@@ -52,6 +53,8 @@ MODULE_AUTHOR("Ryan Bornhorst");
 
 /* stores the contents of the led cntrl register */
 uint32_t led_reg;
+static int blink_rate = 2;
+module_param(blink_rate, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 
 /* pci struct */
 struct mydev_s {
@@ -62,16 +65,44 @@ struct mydev_s {
 /* global pci struct variable */
 struct mydev_s *devs;
 
+/* timer struct */
+static struct timer_list my_timer;
+
 /******************************************************************************
 
 FUNCTIONS
 
 ******************************************************************************/
 
+/* timer callback */
+void timer_cb(unsigned long data) {
+
+	uint32_t config;
+	config = readl(devs->hw_addr + LED_CNTRL_REG);
+	if(config != 0x0000000E) {
+		config = 0xE;
+		writel(config, devs->hw_addr + LED_CNTRL_REG);
+	}
+	else {
+		config = 0xF;
+		writel(config, devs->hw_addr + LED_CNTRL_REG);
+	}
+	data = blink_rate*2;
+	mod_timer(&my_timer, HZ/data + jiffies);
+
+}
+
 /* allows device to be opened using open sys call */
 static int dev_open(struct inode *inode, struct file *file) {
 
     printk(KERN_INFO "opening char device..\n");
+
+    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    printk(KERN_INFO "led_reg = 0x%08x blink_rate = %d\n", led_reg, blink_rate);
+
+    setup_timer(&my_timer, timer_cb, blink_rate);
+
+    mod_timer(&my_timer, HZ/blink_rate + jiffies);
 
     return 0;
 }
@@ -81,7 +112,7 @@ static ssize_t dev_read(struct file *file, char __user *buf,
                         size_t len, loff_t *offset) {
     int ret;
  
-    if(*offset >= sizeof(uint32_t))
+    if(*offset >= sizeof(int))
         return 0;
 
     if(!buf) {
@@ -89,18 +120,14 @@ static ssize_t dev_read(struct file *file, char __user *buf,
         goto out;
     }
 
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
-    printk(KERN_INFO "led_reg before read 0x%08x", led_reg);
-
-    if(copy_to_user(buf, &led_reg, sizeof(uint32_t))) {
+    if(copy_to_user(buf, &blink_rate, sizeof(int))) {
         ret = -EFAULT;
         goto out;
     }
-    ret = sizeof(uint32_t);
+    ret = sizeof(int);
     *offset += len;
 
-    printk(KERN_INFO "User read from us 0x%08x...%ld\n", led_reg, 
-	   sizeof(led_reg));
+    printk(KERN_INFO "User read from us %d...\n", blink_rate);
  
 out:
     return ret;
@@ -108,34 +135,36 @@ out:
 
 /* allows device to be written to using write sys call */
 static ssize_t dev_write(struct file *file, const char __user *buf, 
-             size_t len, loff_t *offset) {
+             		 size_t len, loff_t *offset) {
 
     int ret;
-    uint32_t user_write;
 
     if(!buf) {
         ret = -EINVAL;
         goto out;
     } 
       
-    if(copy_from_user(&user_write, buf, len)) {
+    if(copy_from_user(&blink_rate, buf, len)) {
         ret = -EFAULT;
 	printk(KERN_ERR "bad copy from user...\n");
-        goto mem_out;
+        goto out;
     }
 
     ret = len;
     
-    printk(KERN_INFO "userspace wrote 0x%08x to us...%ld\n", user_write, 
-	   sizeof(user_write));
+    printk(KERN_INFO "userspace wrote %d to us...\n", blink_rate);
     
-    writel(user_write, devs->hw_addr + LED_CNTRL_REG);
-    led_reg = readl(devs->hw_addr + LED_CNTRL_REG);
+    if(blink_rate < 0) {
+	ret = -EINVAL;
+	blink_rate = 2;
+	printk(KERN_ERR "negative blink rate not possible.. blink_rate = 2\n");
+    } else if(blink_rate == 0) {
+	printk(KERN_INFO "blink rate must be greater than 0.. blink_rate = 2\n");
+	blink_rate = 2;
+    } else {
+	printk(KERN_INFO "blink_rate is now %d\n", blink_rate);
+    }
 
-    printk(KERN_INFO "led_reg after write = 0x%08x %ld\n", led_reg, 
-	   sizeof(led_reg));
-
-mem_out:
 out:
     return ret;
 }
@@ -144,6 +173,7 @@ out:
 static int dev_release(struct inode *inode, struct file *file) {
 
     printk(KERN_INFO "device was released...\n");
+    del_timer_sync(&my_timer);
     return 0;
 }
 
@@ -239,7 +269,7 @@ static void dev_remove(struct pci_dev *pdev) {
 	devs = pci_get_drvdata(pdev);
 
 	dev_info(&pdev->dev, "removing pci device...\n");
-
+    
 	iounmap(devs->hw_addr);
 
 	kfree(devs);

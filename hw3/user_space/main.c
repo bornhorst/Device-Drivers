@@ -29,7 +29,8 @@ if(readb < 0)
 printf("\nRead from device: 0x%08x %ld\n", val, readb);
 
 /* turn on led0 */
-val = 0xe;
+val = (val & 0xFFFFFFF0);
+val = (val | 0x0000000e);
 
 writeb = write(fd, &val, sizeof(uint32_t));
 if(writeb < 0)
@@ -43,7 +44,8 @@ if(readb < 0)
 
 printf("\n2nd read from the device: 0x%08x %ld\n", val, readb);
 
-val = 0xf;
+val = (val & 0xFFFFFFF0);
+val = (val | 0x0000000f);
 
 sleep(2);
 
