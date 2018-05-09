@@ -29,7 +29,8 @@ printf("\nRead from device: %d    %ld\n", blink, readb);
 
 sleep(5);
 
-blink = 8;
+printf("\nEnter a new blink rate: ");
+scanf("%d", &blink);
 
 writeb = write(fd, &blink, sizeof(int));
 if(writeb < 0)
