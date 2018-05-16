@@ -13,28 +13,42 @@
 
 #define DEV_MEM "/dev/mem"
 
-#define LED_CTL 0x00E00
+#define LED_CTL   0x00E00
+
+#define RESERVED  0x30303030
 
 #define MEM_WINDOW_SZ 0x00010000
 
+/* stores mmap for pci device */
 volatile void *e1000_mem;
 
-void get_pci_info(off_t *base_addr) {
+/* 
+	scans all pci devices using pci library
+	-use vendor and device id to find specific device
+
+	I referenced an example of how to do this from the 
+	pciutils library. 
+	Found at github.com/gittup/pciutils/blob/gittup/example.c
+*/
+void get_pci_base_addr(off_t *base_addr) {
 	
 	struct pci_access *pacc;
 	struct pci_dev *dev;
-	//unsigned int c;
 	char namebuf[1024], *name;
+        
+	/* allocate memory for pci_access struct */
+	pacc = pci_alloc();		
+	
+	/* initialize pci lib utilities */
+	pci_init(pacc);		
+	
+	/* scan pci bus for all devices it communicates with */
+	pci_scan_bus(pacc);		
 
-	pacc = pci_alloc();		/* Get the pci_access structure */
-	/* Set all options you want -- here we stick with the defaults */
-	pci_init(pacc);		/* Initialize the PCI library */
-	pci_scan_bus(pacc);		/* We want to get the list of devices */
-
-	for (dev=pacc->devices; dev; dev=dev->next)	/* Iterate over all devices */
+	/* run through devices until we find the one we are looking for */
+	for (dev = pacc->devices; dev; dev = dev->next)
 	{
-        	pci_fill_info(dev, PCI_FILL_IDENT | PCI_FILL_BASES | PCI_FILL_CLASS);
-        	//c = pci_read_byte(dev, PCI_INTERRUPT_PIN);				
+        	pci_fill_info(dev, PCI_FILL_IDENT | PCI_FILL_BASES | PCI_FILL_CLASS);				
 
         	/* Look up full name of the device and get base address */
         	name = pci_lookup_name(pacc, namebuf, sizeof(namebuf), PCI_LOOKUP_DEVICE, 
@@ -42,15 +56,22 @@ void get_pci_info(off_t *base_addr) {
 
 		/* get base address of Intel Ethernet Controller */
         	if((dev->vendor_id == 0x8086) && (dev->device_id == 0x100f)) {
-      			printf(" (%s) (base0 = %lx)\n", name, dev->base_addr[0] - 0x4);
+      			printf("(%s) (base0 = 0x%lx)\n", name, dev->base_addr[0] - 0x4);
 			*base_addr = dev->base_addr[0] - 0x4;
-			printf("base_addr = %lx\n", *base_addr);
+			printf("base_addr = 0x%lx\n", *base_addr);
 		}
 	}
 
-	pci_cleanup(pacc);		/* Close everything */
+	/* close pci access interface */
+	pci_cleanup(pacc);		
 }
 
+/*
+	open device using base address and map some memory to it
+
+	I referenced this from ledmon.c
+	-all credit goes to Shannon Nelson and Brett Creeley
+*/
 int open_dev(off_t base_addr, volatile void **mem) {
 	
 	int fd;
@@ -72,14 +93,24 @@ int open_dev(off_t base_addr, volatile void **mem) {
 	
 	return fd;
 }
-
+/*
+	write to register at some offset
+	
+	I referenced this from ledmon.c
+	-all credit goes to Shannon Nelson and Brett Creeley
+*/
 void wuint32(uint32_t reg, uint32_t value) {
 
 	uint32_t *ptr = (uint32_t *)(e1000_mem + reg);
 	*ptr = value;
 
 }
+/*
+	read from a register at some offset
 
+	I referenced this from ledmon.c
+	-all credit goes to Shannon Nelson and Brett Creeley
+*/
 uint32_t ruint32(uint32_t reg) {
 
 	uint32_t *ptr = (uint32_t *)(e1000_mem + reg);
@@ -93,25 +124,64 @@ int main() {
 int dev_mem_fd;
 off_t base_addr;
 uint32_t led_ctl;
-uint32_t led_on;
-uint32_t led_off;
+uint32_t led_config;
+uint32_t led0_on  = 0xE;
+uint32_t led0_off = 0xF;
+uint32_t led1_on  = 0xE00;
+uint32_t led1_off = 0xF00;
+uint32_t led2_on  = 0xE0000;
+uint32_t led2_off = 0xF0000;
+uint32_t led3_on  = 0xE000000;
+uint32_t led3_off = 0xF000000;
 
-get_pci_info(&base_addr);
+/* grab that base address */
+get_pci_base_addr(&base_addr);
 
+/* open device and map memory for it */
 dev_mem_fd = open_dev(base_addr, &e1000_mem);
 if(dev_mem_fd >= 0 && e1000_mem) {
 
+	/* read/modify/write led control register content */
 	led_ctl = ruint32(LED_CTL);
-	printf("led_ctl = 0x%08x\n", led_ctl);
-	led_on  = 0xE;
-	led_off = 0xF;
+	printf("led_ctl before blinking = 0x%08x\n", led_ctl);
+	
+	/* turn off leds that get set by ledmon, but don't write on reserved bits */
+	led_config = led_ctl & RESERVED;
+	wuint32(LED_CTL, led_config | (led0_off | led1_off | led2_off | led3_off));
+	
 
-	for(int i = 0; i < 5; i++) { 
-		wuint32(LED_CTL, led_on);
+	sleep(2);
+	
+	/* lets blinks some leds */
+	printf("turning on led0 and led2\n");
+	wuint32(LED_CTL, led_config | (led0_on | led2_on));
+	sleep(2);
+	printf("turning off all leds\n");
+	wuint32(LED_CTL, led_config | (led0_off | led1_off | led2_off | led3_off));
+	sleep(2);
+	led_config = led_ctl & RESERVED;
+	printf("blinking leds in descending order... 5 times\n");
+	for(int i = 0; i < 5; i++) {
+		sleep(.1);
+		wuint32(LED_CTL, led_config | led3_on);
 		sleep(1);
-		wuint32(LED_CTL, led_off);
+		wuint32(LED_CTL, led_config | led3_off);
+		wuint32(LED_CTL, led_config | led2_on);
 		sleep(1);
+		wuint32(LED_CTL, led_config | led2_off);
+		wuint32(LED_CTL, led_config | led1_on);
+		sleep(1);
+		wuint32(LED_CTL, led_config | led1_off);
+		wuint32(LED_CTL, led_config | led0_on);
+		sleep(1);
+		wuint32(LED_CTL, led_config | led0_off);
 	}
+	printf("\n");
+
+	/* restore original register contents w/o writing over reserved bits */
+	wuint32(LED_CTL, led_ctl);
+	printf("led_ctl is restored to 0x%08x\n", led_ctl);
+
 }
 close(dev_mem_fd);
 
