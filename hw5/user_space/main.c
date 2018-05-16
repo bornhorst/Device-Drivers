@@ -18,8 +18,38 @@
 #define MEM_WINDOW_SZ 0x00010000
 
 volatile void *e1000_mem;
-char *portname = "ens33";
-char *pci_bus = "02:01";
+
+void get_pci_info(off_t *base_addr) {
+	
+	struct pci_access *pacc;
+	struct pci_dev *dev;
+	//unsigned int c;
+	char namebuf[1024], *name;
+
+	pacc = pci_alloc();		/* Get the pci_access structure */
+	/* Set all options you want -- here we stick with the defaults */
+	pci_init(pacc);		/* Initialize the PCI library */
+	pci_scan_bus(pacc);		/* We want to get the list of devices */
+
+	for (dev=pacc->devices; dev; dev=dev->next)	/* Iterate over all devices */
+	{
+        	pci_fill_info(dev, PCI_FILL_IDENT | PCI_FILL_BASES | PCI_FILL_CLASS);
+        	//c = pci_read_byte(dev, PCI_INTERRUPT_PIN);				
+
+        	/* Look up full name of the device and get base address */
+        	name = pci_lookup_name(pacc, namebuf, sizeof(namebuf), PCI_LOOKUP_DEVICE, 
+				       dev->vendor_id, dev->device_id);
+
+		/* get base address of Intel Ethernet Controller */
+        	if((dev->vendor_id == 0x8086) && (dev->device_id == 0x100f)) {
+      			printf(" (%s) (base0 = %lx)\n", name, dev->base_addr[0] - 0x4);
+			*base_addr = dev->base_addr[0] - 0x4;
+			printf("base_addr = %lx\n", *base_addr);
+		}
+	}
+
+	pci_cleanup(pacc);		/* Close everything */
+}
 
 int open_dev(off_t base_addr, volatile void **mem) {
 	
@@ -61,69 +91,12 @@ uint32_t ruint32(uint32_t reg) {
 int main() {
 
 int dev_mem_fd;
-char buf[128];
-char pci_entry[128];
-char addr_str[10];
 off_t base_addr;
-FILE *input;
-int len;
-
 uint32_t led_ctl;
 uint32_t led_on;
 uint32_t led_off;
 
-snprintf(buf, sizeof(buf), "ip -br link show %s", portname);
-input = popen(buf, "r");
-if(!input) {
-	printf("%s not correct\n", portname);
-	exit(1);
-}
-
-fgets(buf, sizeof(pci_entry), input);
-fclose(input);
-if(strncmp(portname, buf, strlen(portname))) {
-	printf("%s not found\n", portname);
-	exit(1);
-}
-
-/* check for pci */
-snprintf(buf, sizeof(buf), "lspci -s %s", pci_bus);
-input = popen(buf, "r");
-if(!input) {
-	printf("%s not correct\n", pci_bus);
-	exit(1);
-}
-
-fgets(pci_entry, sizeof(pci_entry), input);
-fclose(input);
-len = strlen(pci_entry);
-if(len <= 1) {
-	printf("%s not found\n", pci_bus);
-	exit(1);
-}
-
-if(!strstr(pci_entry, "Ethernet controller") ||
-   !strstr(pci_entry, "Intel")) {
-	printf("%s wrong pci device\n", pci_entry);
-	exit(1);
-}
-
-snprintf(buf, sizeof(buf),
-	 "lspci -s %s -v | awk '/Memory at/ { print $3 }' | head -1", 
-	 pci_bus);
-input = popen(buf, "r");
-if(!input) {
-	printf("%s not correct device mem info\n", buf);
-	exit(1);
-}
-fgets(addr_str, sizeof(addr_str), input);
-fclose(input);
-
-base_addr = strtol(addr_str, NULL, 16);
-if(len <= 1) {
-	printf("%s memory address invalid\n", addr_str);
-	exit(1);
-}
+get_pci_info(&base_addr);
 
 dev_mem_fd = open_dev(base_addr, &e1000_mem);
 if(dev_mem_fd >= 0 && e1000_mem) {

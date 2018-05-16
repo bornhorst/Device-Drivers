@@ -344,6 +344,7 @@ int main(int argc, char **argv)
 	fclose(input);
 
         base_addr = strtol(addr_str, NULL, 16);
+	printf("base_addr = %lx\n", base_addr);
         if (len <= 1) {
                 fprintf(stderr, "%s memory address invalid\n", addr_str);
                 exit(1);
