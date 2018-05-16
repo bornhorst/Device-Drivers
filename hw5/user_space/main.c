@@ -13,11 +13,12 @@
 
 #define DEV_MEM "/dev/mem"
 
-#define LED_CTL   0x00E00
+#define LED_CTL        0x00E00
+#define GOOD_PACK_RECV 0x04074
 
-#define RESERVED  0x30303030
+#define RESERVED       0x30303030
 
-#define MEM_WINDOW_SZ 0x00010000
+#define MEM_WINDOW_SZ  0x00010000
 
 /* stores mmap for pci device */
 volatile void *e1000_mem;
@@ -148,8 +149,6 @@ if(dev_mem_fd >= 0 && e1000_mem) {
 	/* turn off leds that get set by ledmon, but don't write on reserved bits */
 	led_config = led_ctl & RESERVED;
 	wuint32(LED_CTL, led_config | (led0_off | led1_off | led2_off | led3_off));
-	
-
 	sleep(2);
 	
 	/* lets blinks some leds */
@@ -162,7 +161,6 @@ if(dev_mem_fd >= 0 && e1000_mem) {
 	led_config = led_ctl & RESERVED;
 	printf("blinking leds in descending order... 5 times\n");
 	for(int i = 0; i < 5; i++) {
-		sleep(.1);
 		wuint32(LED_CTL, led_config | led3_on);
 		sleep(1);
 		wuint32(LED_CTL, led_config | led3_off);
@@ -176,11 +174,15 @@ if(dev_mem_fd >= 0 && e1000_mem) {
 		sleep(1);
 		wuint32(LED_CTL, led_config | led0_off);
 	}
-	printf("\n");
 
-	/* restore original register contents w/o writing over reserved bits */
+	/* restore led_ctl register to initial value and read it */
 	wuint32(LED_CTL, led_ctl);
-	printf("led_ctl is restored to 0x%08x\n", led_ctl);
+	led_config = ruint32(LED_CTL);
+	printf("led_ctl is restored to 0x%08x\n", led_config);
+
+	/* try to read the good packet received register */
+	led_config = ruint32(GOOD_PACK_RECV);
+	printf("good packets received = 0x%08x\n", led_config);
 
 }
 close(dev_mem_fd);
