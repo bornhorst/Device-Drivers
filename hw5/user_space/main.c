@@ -135,6 +135,8 @@ uint32_t led2_off = 0xF0000;
 uint32_t led3_on  = 0xE000000;
 uint32_t led3_off = 0xF000000;
 
+int timeout = 0;
+
 /* grab that base address */
 get_pci_base_addr(&base_addr);
 
@@ -180,10 +182,21 @@ if(dev_mem_fd >= 0 && e1000_mem) {
 	led_config = ruint32(LED_CTL);
 	printf("led_ctl is restored to 0x%08x\n", led_config);
 
-	/* try to read the good packet received register */
-	led_config = ruint32(GOOD_PACK_RECV);
-	printf("good packets received = 0x%08x\n", led_config);
 
+	/* lets just set this to zero */
+	led_config = 0x00000000;
+
+	/* try to read the good packet received register */
+	/* just read until we get a value or timeout if it never happens */
+	while(timeout < 1000000) {
+		led_config = ruint32(GOOD_PACK_RECV);
+		if(led_config != 0x00000000) {
+			printf("good packets received = 0x%08x\n", led_config);
+			break;
+		}
+		sleep(.20);
+		++timeout;
+	}
 }
 close(dev_mem_fd);
 
