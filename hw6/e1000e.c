@@ -110,7 +110,7 @@ struct rx_desc {
 /* ring buffer info */
 struct buffer_info {
 	void       *mem;
-	dma_addr_t physical;
+	dma_addr_t dma_handle;
 } buf_info[RING_SIZE];
 
 /* ring data struct */
@@ -130,13 +130,12 @@ FUNCTIONS
 /* initialize the descriptor ring for dma */
 static void ring_init(struct pci_dev *pdev) {
 
-	//uint32_t config;
-	//int i;
+	unsigned int config;
+	int i;
 
 	/* allocate memory for the ring struct */
-	//devs->rx_ring = kzalloc(sizeof(struct *rx_ring), GFP_KERNEL);
 	rx_ring.ring_size = sizeof(struct rx_desc)*RING_SIZE;
-	//rx_ring.ring_size = ALIGN(rx_ring.ring_size, 2048);
+	rx_ring.ring_size = ALIGN(rx_ring.ring_size, 2048);
 
 	/* allocate contiguous memory for 16 descriptor rings */
 	rx_ring.desc_val = dma_alloc_coherent(&pdev->dev, rx_ring.ring_size,
@@ -147,10 +146,11 @@ static void ring_init(struct pci_dev *pdev) {
 
 	/* set up the high and low addresses for dma */
 	/* set low */
-	//config = (devs->rx_ring->dma_phys) & 0xFFFFFFFF;
+	//config = (rx_ring.dma_handle) & 0xFFFFFFFF;
 	//writel(config, devs->hw_addr + RECV_RDBAL);
+	//printk(KERN_INFO "RDBAL = 0x%08x\n", config);
 	/* set high */
-	//config = (devs->rx_ring->dma_phys >> 32) & 0xFFFFFFFF;
+	//config = (rx_ring.dma_handle >> 32) & 0xFFFFFFFF;
 	//writel(config, devs->hw_addr + RECV_RDBAH);
 
 	/* set up head and tail: head = tail - 1 */
@@ -163,14 +163,14 @@ static void ring_init(struct pci_dev *pdev) {
 	//writel(config, devs->hw_addr + RECV_HEAD);
 
 	/* set up receive length register */
-	//config = sizeof(struct rx_desc)*RING_SIZE;
+	//config = rx_ring.ring_size;
 	//writel(config, devs->hw_addr + RECV_LEN);
 	
 	/* setup all the receive buffers: size = 2048 bytes */
-	//for(i = 0; i < RING_SIZE; i++) {
-	//	buf_info[i].physical = dma_map_single(&pdev->dev, buf_info[i].mem, 
-	//					      2048, DMA_FROM_DEVICE);
-	//}
+	for(i = 0; i < RING_SIZE; i++) {
+		buf_info[i].dma_handle = dma_map_single(&pdev->dev, buf_info[i].mem, 
+						      2048, DMA_FROM_DEVICE);
+	}
 }
 
 /* allows device to be opened using open sys call */
@@ -309,14 +309,13 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 	//writel(0xFFFFFFFF, devs->hw_addr + INT_MASK_CLR);
 
 	/* reset device */
-	//writel((1 << 26), devs->hw_addr + DEV_CNTRL_REG);
-	//udelay(10);
+//	writel((1 << 26), devs->hw_addr + DEV_CNTRL_REG);
 
 	/* set head to 0 */
-	//writel(0, devs->hw_addr + RECV_HEAD);
+//	writel(0, devs->hw_addr + RECV_HEAD);
 
 	/* clear interrup mask bits */
-	//writel(0xFFFFFFFF, devs->hw_addr + INT_MASK_CLR);
+//	writel(0xFFFFFFFF, devs->hw_addr + INT_MASK_CLR);
 	
 	/* set up the link */
 	//config = readl(devs->hw_addr + DEV_CNTRL_REG);
@@ -353,11 +352,11 @@ err_dma:
 /* removes pci device during unbind or rmmod */
 static void dev_remove(struct pci_dev *pdev) {
 
-	//int i;
+	int i;
 
-	//for(i = 0; i < RING_SIZE; i++) {
-	//	dma_unmap_single(&pdev->dev, buf_info[i].physical, 2048, DMA_TO_DEVICE);
-	//}
+	for(i = 0; i < RING_SIZE; i++) {
+		dma_unmap_single(&pdev->dev, buf_info[i].dma_handle, 2048, DMA_TO_DEVICE);
+	}
 
 	dma_free_coherent(&pdev->dev, rx_ring.ring_size, rx_ring.desc_val,
 			  rx_ring.dma_handle);
