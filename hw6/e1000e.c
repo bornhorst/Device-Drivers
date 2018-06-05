@@ -45,7 +45,8 @@
 /* interrupts */
 #define IMC		     0x000D8
 #define IMS		     0x000D0
-#define IRQ_ENABLE           0x11000D4
+#define ICR		     0x000C0
+#define IRQ_ENABLE           0xD4
 
 /* ring buffer */
 #define RING_SIZE 16
@@ -108,68 +109,106 @@ struct rx_desc {
 } rx_desc;
 
 /* ring buffer info */
-struct buffer_info {
-	void       *mem;
+struct ring_buf {
+	void       *buf_mem;
 	dma_addr_t dma_handle;
-} buf_info[RING_SIZE];
+};
 
 /* ring data struct */
 struct rx_ring {
-	void               *desc_val;
+	void               *dma_mem;
 	dma_addr_t         dma_handle;
 	struct rx_desc     *rx_buf_addr;
+	struct ring_buf    buffer[RING_SIZE];
 	size_t             ring_size;
 } rx_ring;
-	
+
 /******************************************************************************
 
 FUNCTIONS
 
 ******************************************************************************/
 
+/* work thread */
+static void service_task(struct work_struct *worker) {
+
+	uint32_t head, tail;
+
+	head = readl(devs->hw_addr + RECV_HEAD);
+	tail = readl(devs->hw_addr + RECV_TAIL);
+
+	msleep(500);
+
+	writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
+
+	if(tail >= 16) {
+		tail = 0;
+		writel(tail, devs->hw_addr + RECV_TAIL);
+	} else {
+		tail = tail + 1;
+		writel(tail, devs->hw_addr + RECV_TAIL);
+	}
+
+	if((tail % 2) == 0) 
+		writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
+	else
+		writel(0x0F0F0E0F, devs->hw_addr + LED_CNTRL_REG);
+}
+
+/* interrupt handler */
+static irqreturn_t irq_handler(int irq, void *data) {
+
+	uint32_t interrupt;	
+
+	/* led stuff */
+	writel(0x0F0F0F0E, devs->hw_addr + LED_CNTRL_REG);
+
+	/* init the work queue */
+	schedule_work(&devs->service_task);
+
+	/* read ICR reg to clear bit */
+	interrupt = readl(devs->hw_addr + ICR);
+
+	/* re-enable */
+	writel(0x162D8, devs->hw_addr + IMS);
+
+	return IRQ_HANDLED;
+}
+
 /* initialize the descriptor ring for dma */
 static void ring_init(struct pci_dev *pdev) {
 
-	unsigned int config;
+	uint32_t config;
 	int i;
 
 	/* allocate memory for the ring struct */
 	rx_ring.ring_size = sizeof(struct rx_desc)*RING_SIZE;
-	rx_ring.ring_size = ALIGN(rx_ring.ring_size, 2048);
 
 	/* allocate contiguous memory for 16 descriptor rings */
-	rx_ring.desc_val = dma_alloc_coherent(&pdev->dev, rx_ring.ring_size,
+	rx_ring.dma_mem = dma_alloc_coherent(&pdev->dev, rx_ring.ring_size,
 					      &rx_ring.dma_handle, GFP_KERNEL);
 	
 	printk(KERN_INFO "size of dma allocation = %ld bytes\n", 
 	       rx_ring.ring_size);
 
-	/* set up the high and low addresses for dma */
-	/* set low */
-	//config = (rx_ring.dma_handle) & 0xFFFFFFFF;
-	//writel(config, devs->hw_addr + RECV_RDBAL);
-	//printk(KERN_INFO "RDBAL = 0x%08x\n", config);
-	/* set high */
-	//config = (rx_ring.dma_handle >> 32) & 0xFFFFFFFF;
-	//writel(config, devs->hw_addr + RECV_RDBAH);
+	/* set up high and low registers */
+	config = (rx_ring.dma_handle >> 32) & 0xFFFFFFFF;
+	printk(KERN_INFO "dma upper = 0x%08x\n", config);
+	writel(config, devs->hw_addr + RECV_RDBAH);
+	config = rx_ring.dma_handle & 0xFFFFFFFF;
+	writel(config, devs->hw_addr + RECV_RDBAL);
 
-	/* set up head and tail: head = tail - 1 */
-	/* start tail and 0, head at n-1 */
-	//config = readl(devs->hw_addr + RECV_TAIL);
-	//config |= 0x0;
-	//writel(config, devs->hw_addr + RECV_TAIL);
-	//config = readl(devs->hw_addr + RECV_HEAD);
-	//config |= 0xF;
-	//writel(config, devs->hw_addr + RECV_HEAD);
+	/* set up head and tail */
+	writel(16, devs->hw_addr + RECV_TAIL);
+	writel(0, devs->hw_addr + RECV_HEAD);	
 
 	/* set up receive length register */
-	//config = rx_ring.ring_size;
-	//writel(config, devs->hw_addr + RECV_LEN);
+	writel(rx_ring.ring_size, devs->hw_addr + RECV_LEN);
 	
 	/* setup all the receive buffers: size = 2048 bytes */
 	for(i = 0; i < RING_SIZE; i++) {
-		buf_info[i].dma_handle = dma_map_single(&pdev->dev, buf_info[i].mem, 
-						      2048, DMA_FROM_DEVICE);
+		rx_ring.buffer[i].dma_handle = dma_map_single(&pdev->dev, rx_ring.buffer[i].buf_mem, 
+						              2048, DMA_FROM_DEVICE);
 	}
 }
 
@@ -264,7 +303,6 @@ static char *my_devnode(struct device *dev, umode_t *mode) {
 /* pci probe function */
 static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
-	uint32_t config;
 	uint32_t ioremap_len;
 	int err;
 
@@ -295,53 +333,46 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 	devs->pdev = pdev;
 	pci_set_drvdata(pdev, devs);
 
-	ioremap_len = min_t(int, pci_resource_len(pdev, 0), 1024);
+	ioremap_len = pci_resource_len(pdev, 0);
 	devs->hw_addr = ioremap(pci_resource_start(pdev, 0), ioremap_len);
 	if(!devs->hw_addr) {
 		err = -EIO;
 		dev_info(&pdev->dev, "ioremap(0x%04x, 0x%04x) failed: 0x%x\n", 
 		         (unsigned int)pci_resource_start(pdev, 0),
 			 (unsigned int)pci_resource_len(pdev, 0), err);
-		goto err_ioremap;
+		goto err_io_remap;
 	}
 	
-	/* clear interrupt mask bits */
-	//writel(0xFFFFFFFF, devs->hw_addr + INT_MASK_CLR);
-
 	/* reset device */
-//	writel((1 << 26), devs->hw_addr + DEV_CNTRL_REG);
+	writel((1 << 26), devs->hw_addr + DEV_CNTRL_REG);
+	udelay(5);
 
-	/* set head to 0 */
-//	writel(0, devs->hw_addr + RECV_HEAD);
+	/* force speed and duplex */
+	writel(0x1A41, devs->hw_addr + DEV_CNTRL_REG);
 
-	/* clear interrup mask bits */
-//	writel(0xFFFFFFFF, devs->hw_addr + INT_MASK_CLR);
-	
-	/* set up the link */
-	//config = readl(devs->hw_addr + DEV_CNTRL_REG);
-	//config |= 0x40;
-	//writel(config, devs->hw_addr + DEV_CNTRL_REG);
+	/* set interrupts in IMS */
+	writel(0x162D8, devs->hw_addr + IMS);
 
-	/* read status register */
-	//config = readl(devs->hw_addr + DEV_STATUS_REG);
-	//dev_info(&pdev->dev, "status register = 0x%08x\n", config);
-	
 	/* setup the receive ring */
 	ring_init(pdev);
 
-	/* still need to setup IRQ and work queue */
+	/* setup receive cntrl reg */
+	writel(0x813E, devs->hw_addr + RECV_CNTRL_REG);
+
+	/* start work queue thread */
+	INIT_WORK(&devs->service_task, service_task); 
+
+	/* setup IRQ */
+	err = request_irq(pdev->irq, irq_handler, 0, "e1000e_irq", devs);
+
+	/* turn off all leds to start except 2 */
+	writel(0x0F0E0F0F, devs->hw_addr + LED_CNTRL_REG);
 	
-	/* enable interrupts */
-	//writel(IRQ_ENABLE, devs->hw_addr + IMS);
-
-	/* set promiscuous mode */
-	//writel(PROMISCUOUS, devs->hw_addr + RECV_CNTRL);
-
 	return 0;
 
-err_ioremap:
-	kfree(devs);
 err_dev_alloc:
+	kfree(devs);
+err_io_remap:
 	pci_release_selected_regions(pdev, pci_select_bars(pdev, IORESOURCE_MEM));
 err_pci_reg:
 err_dma:
@@ -354,14 +385,17 @@ static void dev_remove(struct pci_dev *pdev) {
 
 	int i;
 
+	cancel_work_sync(&devs->service_task);
+
+	free_irq(pdev->irq, devs);
+
 	for(i = 0; i < RING_SIZE; i++) {
-		dma_unmap_single(&pdev->dev, buf_info[i].dma_handle, 2048, DMA_TO_DEVICE);
+		dma_unmap_single(&pdev->dev, rx_ring.buffer[i].dma_handle, 2048, 
+				 DMA_TO_DEVICE);
 	}
 
-	dma_free_coherent(&pdev->dev, rx_ring.ring_size, rx_ring.desc_val,
+	dma_free_coherent(&pdev->dev, rx_ring.ring_size, rx_ring.dma_mem,
 			  rx_ring.dma_handle);
-
-	//kfree(devs->rx_ring);
 
 	devs = pci_get_drvdata(pdev);
 
