@@ -11,30 +11,21 @@
 
 int main()
 {
-int fd;
-ssize_t readb;
-ssize_t writeb;
-int blink;
+int      fd;
+ssize_t  readb;
+ssize_t  writeb;
+uint32_t head_tail;
 
 /* open device for r/w */
 fd = open(CHAR_DEVICE, O_RDWR);
 if(fd < 0)
     printf("\nUnable to open device...\n");
 
-readb = read(fd, &blink, sizeof(int));
+readb = read(fd, &head_tail, sizeof(uint32_t));
 if(readb < 0)
     printf("\nUnable to read device...%ld\n", readb);
 
-printf("\nRead from device: %d\n", blink);
-
-printf("\nEnter a new blink rate: ");
-scanf("%d", &blink);
-
-writeb = write(fd, &blink, sizeof(int));
-if(writeb < 0)
-    printf("\nUnable to write to device...%ld\n", writeb);
-
-printf("\nSent to device: %d\n\n", blink);
+printf("\nRead from device: 0x%08x\n", head_tail);
 
 close(fd);
 

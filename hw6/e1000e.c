@@ -106,7 +106,7 @@ struct rx_desc {
 			__le16 special;
 		} field;
 	} upper;
-} rx_desc;
+};
 
 /* ring buffer info */
 struct ring_buf {
@@ -118,9 +118,11 @@ struct ring_buf {
 struct rx_ring {
 	void               *dma_mem;
 	dma_addr_t         dma_handle;
-	struct rx_desc     *rx_buf_addr;
+	struct rx_desc     rx_desc_buf[RING_SIZE];
 	struct ring_buf    buffer[RING_SIZE];
 	size_t             ring_size;
+	uint32_t	   head;
+	uint32_t	   tail;
 } rx_ring;
 
 /******************************************************************************
@@ -132,24 +134,22 @@ FUNCTIONS
 /* work thread */
 static void service_task(struct work_struct *worker) {
 
-	uint32_t head, tail;
-
-	head = readl(devs->hw_addr + RECV_HEAD);
-	tail = readl(devs->hw_addr + RECV_TAIL);
+	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
+	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
 
 	msleep(500);
 
 	writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 
-	if(tail >= 16) {
-		tail = 0;
-		writel(tail, devs->hw_addr + RECV_TAIL);
-	} else {
-		tail = tail + 1;
-		writel(tail, devs->hw_addr + RECV_TAIL);
-	}
+	if(rx_ring.tail >= 15) 
+		writel(0, devs->hw_addr + RECV_TAIL);
+	 else 
+		writel((rx_ring.tail + 1), devs->hw_addr + RECV_TAIL);
 
-	if((tail % 2) == 0) 
+	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
+	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
+
+	if((rx_ring.tail % 2) == 0) 
 		writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 	else
 		writel(0x0F0F0E0F, devs->hw_addr + LED_CNTRL_REG);
@@ -207,8 +207,11 @@ static void ring_init(struct pci_dev *pdev) {
 	
 	/* setup all the receive buffers: size = 2048 bytes */
 	for(i = 0; i < RING_SIZE; i++) {
+
 		rx_ring.buffer[i].dma_handle = dma_map_single(&pdev->dev, rx_ring.buffer[i].buf_mem, 
 						              2048, DMA_FROM_DEVICE);
+
+		rx_ring.rx_desc_buf[i].buffer_addr = cpu_to_le64(rx_ring.buffer[i].dma_handle);
 	}
 }
 
@@ -224,6 +227,18 @@ static int dev_open(struct inode *inode, struct file *file) {
 static ssize_t dev_read(struct file *file, char __user *buf, 
                         size_t len, loff_t *offset) {
 	int ret;
+
+	uint16_t head, tail;
+	uint32_t config;
+
+	head = readl(devs->hw_addr + RECV_HEAD);
+	tail = readl(devs->hw_addr + RECV_TAIL);
+
+	config =   tail;
+	config <<= 16;
+	config |=  head;
+
+	printk(KERN_INFO "head/tail = 0x%08x\n", config);
  
     	if(*offset >= sizeof(uint32_t))
         	return 0;
@@ -233,14 +248,14 @@ static ssize_t dev_read(struct file *file, char __user *buf,
         	goto out;
     	}
 
-    	if(copy_to_user(buf, &led_reg, sizeof(uint32_t))) {
+    	if(copy_to_user(buf, &config, sizeof(uint32_t))) {
         	ret = -EFAULT;
         	goto out;
     	}
     	ret = sizeof(uint32_t);
     	*offset += len;
 
-    	printk(KERN_INFO "User read from us 0x%08x...\n", led_reg);
+    	printk(KERN_INFO "User read from us 0x%08x...\n", config);
  
 out:
     return ret;
