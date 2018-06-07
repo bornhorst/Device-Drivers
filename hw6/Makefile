@@ -9,4 +9,5 @@ default:
 	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
 
 clean:
-	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean
+	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean 
+

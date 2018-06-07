@@ -11,10 +11,11 @@
 
 int main()
 {
+
 int      fd;
 ssize_t  readb;
-ssize_t  writeb;
 uint32_t head_tail;
+uint16_t head, tail;
 
 /* open device for r/w */
 fd = open(CHAR_DEVICE, O_RDWR);
@@ -26,6 +27,11 @@ if(readb < 0)
     printf("\nUnable to read device...%ld\n", readb);
 
 printf("\nRead from device: 0x%08x\n", head_tail);
+
+head = (head_tail >> 16) & 0xFFFFFFFF;
+tail = head_tail & 0xFFFF;
+
+printf("head = %d  tail = %d\n", head, tail);
 
 close(fd);
 

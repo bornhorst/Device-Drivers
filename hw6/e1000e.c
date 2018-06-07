@@ -31,7 +31,7 @@
 #define LED_CNTRL_REG        0x00E00
 #define DEV_CNTRL_REG        0x00000
 #define DEV_STATUS_REG       0x00008
-#define INT_MASK_CLR	     0x000D8
+#define CNTRL_LINK_UP	     0x1A41
 
 /* receive packet registers */
 #define RECV_CNTRL_REG       0x00100
@@ -40,13 +40,15 @@
 #define RECV_LEN             0x02808
 #define RECV_HEAD            0x02810
 #define RECV_TAIL	     0x02818
-#define PROMISCUOUS          0x0801A
+#define RECV_SETUP           0x801A
+//813E
 
 /* interrupts */
 #define IMC		     0x000D8
 #define IMS		     0x000D0
 #define ICR		     0x000C0
-#define IRQ_ENABLE           0xD4
+#define IRQ_ENABLE           0x10
+//162d8
 
 /* ring buffer */
 #define RING_SIZE 16
@@ -74,9 +76,6 @@ static const struct pci_device_id my_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, my_pci_tbl);
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Ryan Bornhorst");
-
-/* stores the contents of the led cntrl register */
-uint32_t led_reg;
 
 /* pci struct */
 struct mydev_s {
@@ -134,6 +133,8 @@ FUNCTIONS
 /* work thread */
 static void service_task(struct work_struct *worker) {
 
+	u64 rx_dma;
+
 	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
 	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
 
@@ -141,9 +142,14 @@ static void service_task(struct work_struct *worker) {
 
 	writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 
-	if(rx_ring.tail >= 15) 
+	rx_dma = (u64)rx_ring.rx_desc_buf[rx_ring.head].buffer_addr;
+	printk("rx_desc[head] address = 0x%llx\n", rx_dma);
+	rx_dma = (u64)rx_ring.rx_desc_buf[rx_ring.tail].buffer_addr;
+	printk("rx_desc[tail] address = 0x%llx\n", rx_dma);
+
+	if(rx_ring.tail == 15) 
 		writel(0, devs->hw_addr + RECV_TAIL);
-	 else 
+	else 
 		writel((rx_ring.tail + 1), devs->hw_addr + RECV_TAIL);
 
 	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
@@ -153,6 +159,7 @@ static void service_task(struct work_struct *worker) {
 		writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 	else
 		writel(0x0F0F0E0F, devs->hw_addr + LED_CNTRL_REG);
+
 }
 
 /* interrupt handler */
@@ -168,9 +175,9 @@ static irqreturn_t irq_handler(int irq, void *data) {
 
 	/* read ICR reg to clear bit */
 	interrupt = readl(devs->hw_addr + ICR);
-
-	/* re-enable */
-	writel(0x162D8, devs->hw_addr + IMS);
+	
+	/* re-enable  IRQ */
+	writel(IRQ_ENABLE, devs->hw_addr + IMS);
 
 	return IRQ_HANDLED;
 }
@@ -186,21 +193,19 @@ static void ring_init(struct pci_dev *pdev) {
 
 	/* allocate contiguous memory for 16 descriptor rings */
 	rx_ring.dma_mem = dma_alloc_coherent(&pdev->dev, rx_ring.ring_size,
-					      &rx_ring.dma_handle, GFP_KERNEL);
-	
-	printk(KERN_INFO "size of dma allocation = %ld bytes\n", 
-	       rx_ring.ring_size);
+					     &rx_ring.dma_handle, GFP_KERNEL);
 
 	/* set up high and low registers */
 	config = (rx_ring.dma_handle >> 32) & 0xFFFFFFFF;
-	printk(KERN_INFO "dma upper = 0x%08x\n", config);
 	writel(config, devs->hw_addr + RECV_RDBAH);
 	config = rx_ring.dma_handle & 0xFFFFFFFF;
 	writel(config, devs->hw_addr + RECV_RDBAL);
 
 	/* set up head and tail */
-	writel(16, devs->hw_addr + RECV_TAIL);
+	writel(15, devs->hw_addr + RECV_TAIL);
 	writel(0, devs->hw_addr + RECV_HEAD);	
+
+	printk(KERN_INFO "ring size in bytes = %ld\n", rx_ring.ring_size);
 
 	/* set up receive length register */
 	writel(rx_ring.ring_size, devs->hw_addr + RECV_LEN);
@@ -234,9 +239,10 @@ static ssize_t dev_read(struct file *file, char __user *buf,
 	head = readl(devs->hw_addr + RECV_HEAD);
 	tail = readl(devs->hw_addr + RECV_TAIL);
 
-	config =   tail;
+	/* pack head and tail together */
+	config =   head;
 	config <<= 16;
-	config |=  head;
+	config |=  tail;
 
 	printk(KERN_INFO "head/tail = 0x%08x\n", config);
  
@@ -272,7 +278,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
         	goto out;
     	} 
       
-    	if(copy_from_user(&led_reg, buf, len)) {
+    	if(copy_from_user(&ret, buf, len)) {
         	ret = -EFAULT;
 		printk(KERN_ERR "bad copy from user...\n");
         	goto out;
@@ -280,7 +286,7 @@ static ssize_t dev_write(struct file *file, const char __user *buf,
 
     	ret = len;
     
-    	printk(KERN_INFO "userspace wrote 0x%08x to us...\n", led_reg); 
+    	printk(KERN_INFO "userspace wrote 0x%08x to us...\n", ret); 
     
 out:
     	return ret;
@@ -363,16 +369,16 @@ static int dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 	udelay(5);
 
 	/* force speed and duplex */
-	writel(0x1A41, devs->hw_addr + DEV_CNTRL_REG);
+	writel(CNTRL_LINK_UP, devs->hw_addr + DEV_CNTRL_REG);
 
 	/* set interrupts in IMS */
-	writel(0x162D8, devs->hw_addr + IMS);
+	writel(IRQ_ENABLE, devs->hw_addr + IMS);
 
 	/* setup the receive ring */
 	ring_init(pdev);
 
 	/* setup receive cntrl reg */
-	writel(0x813E, devs->hw_addr + RECV_CNTRL_REG);
+	writel(RECV_SETUP, devs->hw_addr + RECV_CNTRL_REG);
 
 	/* start work queue thread */
 	INIT_WORK(&devs->service_task, service_task); 
