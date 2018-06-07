@@ -41,14 +41,12 @@
 #define RECV_HEAD            0x02810
 #define RECV_TAIL	     0x02818
 #define RECV_SETUP           0x801A
-//813E
 
 /* interrupts */
 #define IMC		     0x000D8
 #define IMS		     0x000D0
 #define ICR		     0x000C0
 #define IRQ_ENABLE           0x10
-//162d8
 
 /* ring buffer */
 #define RING_SIZE 16
@@ -133,19 +131,12 @@ FUNCTIONS
 /* work thread */
 static void service_task(struct work_struct *worker) {
 
-	u64 rx_dma;
-
 	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
 	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
 
 	msleep(500);
 
 	writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
-
-	rx_dma = (u64)rx_ring.rx_desc_buf[rx_ring.head].buffer_addr;
-	printk("rx_desc[head] address = 0x%llx\n", rx_dma);
-	rx_dma = (u64)rx_ring.rx_desc_buf[rx_ring.tail].buffer_addr;
-	printk("rx_desc[tail] address = 0x%llx\n", rx_dma);
 
 	if(rx_ring.tail == 15) 
 		writel(0, devs->hw_addr + RECV_TAIL);
@@ -204,8 +195,6 @@ static void ring_init(struct pci_dev *pdev) {
 	/* set up head and tail */
 	writel(15, devs->hw_addr + RECV_TAIL);
 	writel(0, devs->hw_addr + RECV_HEAD);	
-
-	printk(KERN_INFO "ring size in bytes = %ld\n", rx_ring.ring_size);
 
 	/* set up receive length register */
 	writel(rx_ring.ring_size, devs->hw_addr + RECV_LEN);
