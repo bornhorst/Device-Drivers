@@ -40,7 +40,7 @@
 #define RECV_LEN             0x02808
 #define RECV_HEAD            0x02810
 #define RECV_TAIL	     0x02818
-#define RECV_SETUP           0x811A
+#define RECV_SETUP           0x821A
 
 /* interrupts */
 #define IMC		     0x000D8
@@ -140,12 +140,12 @@ static void service_task(struct work_struct *worker) {
 
 	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
 	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
-
+		
 	msleep(500);
 
 	writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 
-	do {
+	do {	
 
 		if(rx_ring.tail >= 15) 
 			writel(0, devs->hw_addr + RECV_TAIL);
@@ -185,7 +185,7 @@ static void service_task(struct work_struct *worker) {
 			rx_desc->upper.field.status,
 			rx_desc->lower.flags.length);
 
-			if((rx_ring.tail % 2) == 0) 
+		if((rx_ring.tail % 2) == 0) 
 			writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 		else
 			writel(0x0F0F0E0F, devs->hw_addr + LED_CNTRL_REG);
