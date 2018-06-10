@@ -51,6 +51,10 @@
 /* ring buffer */
 #define RING_SIZE 16
 
+/* descriptor stuff */
+#define E1000_GET_DESC(R, i, type)  (&(((struct type *)((R).dma_mem))[i]))
+#define E1000_RX_DESC(R, i)         E1000_GET_DESC(R, i, rx_desc)
+
 /* char device class */
 static struct class *char_class = NULL;
 
@@ -107,7 +111,7 @@ struct rx_desc {
 
 /* ring buffer info */
 struct ring_buf {
-	void       *buf_mem;
+	u8         *data;
 	dma_addr_t dma_handle;
 };
 
@@ -115,11 +119,10 @@ struct ring_buf {
 struct rx_ring {
 	void               *dma_mem;
 	dma_addr_t         dma_handle;
-	struct rx_desc     rx_desc_buf[RING_SIZE];
 	struct ring_buf    buffer[RING_SIZE];
 	size_t             ring_size;
-	uint32_t	   head;
-	uint32_t	   tail;
+	uint16_t	   head;
+	uint16_t	   tail;
 } rx_ring;
 
 /******************************************************************************
@@ -131,6 +134,9 @@ FUNCTIONS
 /* work thread */
 static void service_task(struct work_struct *worker) {
 
+	struct rx_ring *rx_rings = &rx_ring;
+	struct rx_desc *rx_desc;
+
 	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
 	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
 
@@ -138,13 +144,19 @@ static void service_task(struct work_struct *worker) {
 
 	writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
 
-	if(rx_ring.tail == 15) 
+	if(rx_ring.tail >= 15) 
 		writel(0, devs->hw_addr + RECV_TAIL);
 	else 
 		writel((rx_ring.tail + 1), devs->hw_addr + RECV_TAIL);
 
 	rx_ring.head = readl(devs->hw_addr + RECV_HEAD);
 	rx_ring.tail = readl(devs->hw_addr + RECV_TAIL);
+
+	rx_desc = E1000_RX_DESC(*rx_rings, rx_ring.tail);
+
+	/* clear the DD bits */
+	if(rx_desc->upper.field.status == 0x3)
+		rx_desc->upper.field.status = 0x0;
 
 	if((rx_ring.tail % 2) == 0) 
 		writel(0x0F0F0F0F, devs->hw_addr + LED_CNTRL_REG);
@@ -174,39 +186,76 @@ static irqreturn_t irq_handler(int irq, void *data) {
 }
 
 /* initialize the descriptor ring for dma */
-static void ring_init(struct pci_dev *pdev) {
+static int ring_init(struct pci_dev *pdev) {
 
+	int ret = 0;
 	uint32_t config;
 	int i;
+	struct rx_ring *rxdr = &rx_ring;
 
 	/* allocate memory for the ring struct */
-	rx_ring.ring_size = sizeof(struct rx_desc)*RING_SIZE;
+	rxdr->ring_size = sizeof(struct rx_desc)*RING_SIZE;
 
 	/* allocate contiguous memory for 16 descriptor rings */
-	rx_ring.dma_mem = dma_alloc_coherent(&pdev->dev, rx_ring.ring_size,
-					     &rx_ring.dma_handle, GFP_KERNEL);
+	rxdr->dma_mem = dma_zalloc_coherent(&pdev->dev, rxdr->ring_size,
+					    &rxdr->dma_handle, GFP_KERNEL);
+
+	if(!rxdr->dma_mem) {
+		ret = -1;
+		goto err_nomem_dma_coherent;
+	}
 
 	/* set up high and low registers */
-	config = (rx_ring.dma_handle >> 32) & 0xFFFFFFFF;
+	config = (rxdr->dma_handle >> 32) & 0xFFFFFFFF;
 	writel(config, devs->hw_addr + RECV_RDBAH);
-	config = rx_ring.dma_handle & 0xFFFFFFFF;
+	config = rxdr->dma_handle & 0xFFFFFFFF;
 	writel(config, devs->hw_addr + RECV_RDBAL);
 
 	/* set up head and tail */
-	writel(15, devs->hw_addr + RECV_TAIL);
+	writel(16, devs->hw_addr + RECV_TAIL);
 	writel(0, devs->hw_addr + RECV_HEAD);	
 
 	/* set up receive length register */
-	writel(rx_ring.ring_size, devs->hw_addr + RECV_LEN);
+	writel(rxdr->ring_size, devs->hw_addr + RECV_LEN);
 	
 	/* setup all the receive buffers: size = 2048 bytes */
 	for(i = 0; i < RING_SIZE; i++) {
+		
+		struct rx_desc *rx_desc = E1000_RX_DESC(*rxdr, i);
+		u8 *buf;
 
-		rx_ring.buffer[i].dma_handle = dma_map_single(&pdev->dev, rx_ring.buffer[i].buf_mem, 
-						              2048, DMA_FROM_DEVICE);
+		/* allocate buffer for data */
+		buf = kzalloc(2048, GFP_KERNEL);
 
-		rx_ring.rx_desc_buf[i].buffer_addr = cpu_to_le64(rx_ring.buffer[i].dma_handle);
+		/* set up the data buffer */
+		rxdr->buffer[i].data = buf;
+
+		/* map the buffer address */
+		rxdr->buffer[i].dma_handle = dma_map_single(&pdev->dev, buf, 
+						            2048, DMA_FROM_DEVICE);
+
+		if(dma_mapping_error(&pdev->dev, rxdr->buffer[i].dma_handle)) {
+			ret = -1;
+			goto err_nomem_dma_single;
+		}
+		
+		/* store the buffer address */
+		rx_desc->buffer_addr = cpu_to_le64(rxdr->buffer[i].dma_handle);
 	}
+
+	return ret;
+
+err_nomem_dma_single:
+	for(i = 0; i < RING_SIZE; i++) {
+		dma_unmap_single(&pdev->dev, rxdr->buffer[i].dma_handle, 2048,
+				 DMA_FROM_DEVICE);
+		kfree(rxdr->buffer[i].data);
+	}
+
+err_nomem_dma_coherent:
+	dma_free_coherent(&pdev->dev, rxdr->ring_size, rxdr->dma_mem,
+			  rxdr->dma_handle);
+	return ret;
 }
 
 /* allows device to be opened using open sys call */
@@ -394,18 +443,29 @@ err_dma:
 static void dev_remove(struct pci_dev *pdev) {
 
 	int i;
+	struct rx_ring *rxdr = &rx_ring;
 
 	cancel_work_sync(&devs->service_task);
 
 	free_irq(pdev->irq, devs);
 
-	for(i = 0; i < RING_SIZE; i++) {
-		dma_unmap_single(&pdev->dev, rx_ring.buffer[i].dma_handle, 2048, 
-				 DMA_TO_DEVICE);
+	if(rxdr->dma_mem && rxdr->buffer) {
+
+		for(i = 0; i < RING_SIZE; i++) {
+			if(rxdr->buffer[i].dma_handle) 
+				dma_unmap_single(&pdev->dev, 
+					 	 rxdr->buffer[i].dma_handle, 
+					 	 2048, DMA_FROM_DEVICE);
+			kfree(rxdr->buffer[i].data);
+		}
 	}
 
-	dma_free_coherent(&pdev->dev, rx_ring.ring_size, rx_ring.dma_mem,
-			  rx_ring.dma_handle);
+	if(rxdr->dma_mem) {
+
+		dma_free_coherent(&pdev->dev, rxdr->ring_size, rxdr->dma_mem,
+			  	  rxdr->dma_handle);
+		rxdr->dma_mem = NULL;
+	}
 
 	devs = pci_get_drvdata(pdev);
 
