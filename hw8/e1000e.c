@@ -1,7 +1,7 @@
 /* 
-   Descriptors w/ Interrupts
-   Homework #6 
-   6-4-18
+   Reading the buffers
+   Homework #8 
+   6-11-18
 */
 
 #include <linux/init.h>
@@ -255,11 +255,6 @@ static int ring_init(struct pci_dev *pdev) {
 		
 		/* allocate buffer for data */
 		buf = kzalloc(2048, GFP_KERNEL);
-
-		if(!buf) {
-			ret = -1;
-			goto err_nomem_buf;
-		}
 		
 		/* set up the data buffer */
 		rxdr->buffer[i].data = buf;
@@ -279,19 +274,16 @@ static int ring_init(struct pci_dev *pdev) {
 
 	return ret;
 
-err_nomem_dma_coherent:
-	dma_free_coherent(&pdev->dev, rxdr->ring_size, rxdr->dma_mem,
-			  rxdr->dma_handle);
-
-err_nomem_buf:
-	kfree(&rxdr->buffer);
-	return ret;
-
 err_nomem_dma_single:
 	for(i = 0; i < RING_SIZE; i++) {
 		dma_unmap_single(&pdev->dev, rxdr->buffer[i].dma_handle, 2048,
 				 DMA_TO_DEVICE);
+		kfree(rxdr->buffer[i].data);
 	}
+
+err_nomem_dma_coherent:
+	dma_free_coherent(&pdev->dev, rxdr->ring_size, rxdr->dma_mem,
+			  rxdr->dma_handle);
 	return ret;
 }
 
